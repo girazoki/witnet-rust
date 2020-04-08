@@ -1831,12 +1831,14 @@ fn data_request_zero_value_output() {
 fn test_empty_commit(c_tx: &CommitTransaction) -> Result<(), failure::Error> {
     let mut signatures_to_verify = vec![];
     let dr_pool = DataRequestPool::default();
+    let vrf_input = CheckpointBeacon::default();
     let beacon = CheckpointBeacon::default();
     let rep_eng = ReputationEngine::new(100);
 
     validate_commit_transaction(
         &c_tx,
         &dr_pool,
+        vrf_input,
         beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -1852,6 +1854,7 @@ static DR_HASH: &str = "0a866ced5ca378e3e01a75f755384972868e99f838dec4ddb06adc46
 fn test_commit_with_dr(c_tx: &CommitTransaction) -> Result<(), failure::Error> {
     let mut dr_pool = DataRequestPool::default();
     let commit_beacon = CheckpointBeacon::default();
+    let vrf_input = CheckpointBeacon::default();
     let rep_eng = ReputationEngine::new(100);
 
     let dro = DataRequestOutput {
@@ -1880,6 +1883,7 @@ fn test_commit_with_dr(c_tx: &CommitTransaction) -> Result<(), failure::Error> {
     validate_commit_transaction(
         &c_tx,
         &dr_pool,
+        vrf_input,
         commit_beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -1896,6 +1900,7 @@ fn test_commit_with_dr(c_tx: &CommitTransaction) -> Result<(), failure::Error> {
 fn test_commit_difficult_proof() {
     let mut dr_pool = DataRequestPool::default();
     let commit_beacon = CheckpointBeacon::default();
+    let vrf_input = CheckpointBeacon::default();
     let vrf = &mut VrfCtx::secp256k1().unwrap();
     let secret_key = SecretKey {
         bytes: Protected::from(vec![0xcd; 32]),
@@ -1938,7 +1943,7 @@ fn test_commit_difficult_proof() {
     let mut cb = CommitTransactionBody::default();
     cb.dr_pointer = dr_hash;
     cb.proof =
-        DataRequestEligibilityClaim::create(vrf, &secret_key, commit_beacon, dr_hash).unwrap();
+        DataRequestEligibilityClaim::create(vrf, &secret_key, vrf_input, dr_hash).unwrap();
     // Sign commitment
     let cs = sign_t(&cb);
     let c_tx = CommitTransaction::new(cb, vec![cs]);
@@ -1947,6 +1952,7 @@ fn test_commit_difficult_proof() {
     let x = validate_commit_transaction(
         &c_tx,
         &dr_pool,
+        vrf_input,
         commit_beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -1966,6 +1972,7 @@ fn test_commit_difficult_proof() {
 fn test_commit() -> Result<(), failure::Error> {
     let mut signatures_to_verify = vec![];
     let mut dr_pool = DataRequestPool::default();
+    let vrf_input = CheckpointBeacon::default();
     let commit_beacon = CheckpointBeacon::default();
     let vrf = &mut VrfCtx::secp256k1().unwrap();
     let rep_eng = ReputationEngine::new(100);
@@ -1999,7 +2006,7 @@ fn test_commit() -> Result<(), failure::Error> {
     let mut cb = CommitTransactionBody::default();
     cb.dr_pointer = dr_hash;
     cb.proof =
-        DataRequestEligibilityClaim::create(vrf, &secret_key, commit_beacon, dr_hash).unwrap();
+        DataRequestEligibilityClaim::create(vrf, &secret_key, vrf_input, dr_hash).unwrap();
     // Sign commitment
     let cs = sign_t(&cb);
     let c_tx = CommitTransaction::new(cb, vec![cs]);
@@ -2007,6 +2014,7 @@ fn test_commit() -> Result<(), failure::Error> {
     validate_commit_transaction(
         &c_tx,
         &dr_pool,
+        vrf_input,
         commit_beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -2142,6 +2150,8 @@ fn commitment_invalid_proof() {
     cb.dr_pointer = dr_pointer;
 
     let mut dr_pool = DataRequestPool::default();
+    let vrf_input = CheckpointBeacon::default();
+
     let commit_beacon = CheckpointBeacon::default();
     let vrf = &mut VrfCtx::secp256k1().unwrap();
     let rep_eng = ReputationEngine::new(100);
@@ -2151,7 +2161,7 @@ fn commitment_invalid_proof() {
 
     // Create an invalid proof by suppliying a different dr_pointer
     let bad_dr_pointer = Hash::default();
-    cb.proof = DataRequestEligibilityClaim::create(vrf, &secret_key, commit_beacon, bad_dr_pointer)
+    cb.proof = DataRequestEligibilityClaim::create(vrf, &secret_key, vrf_input, bad_dr_pointer)
         .unwrap();
 
     let dro = DataRequestOutput {
@@ -2182,6 +2192,7 @@ fn commitment_invalid_proof() {
     let x = validate_commit_transaction(
         &c_tx,
         &dr_pool,
+        vrf_input,
         commit_beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -2206,6 +2217,7 @@ fn commitment_dr_in_reveal_stage() {
     let mut dr_pool = DataRequestPool::default();
     let block_hash = Hash::default();
     let commit_beacon = CheckpointBeacon::default();
+    let vrf_input = CheckpointBeacon::default();
     let vrf = &mut VrfCtx::secp256k1().unwrap();
     let rep_eng = ReputationEngine::new(100);
     let secret_key = SecretKey {
@@ -2238,7 +2250,7 @@ fn commitment_dr_in_reveal_stage() {
     let mut cb = CommitTransactionBody::default();
     cb.dr_pointer = dr_hash;
     cb.proof =
-        DataRequestEligibilityClaim::create(vrf, &secret_key, commit_beacon, dr_hash).unwrap();
+        DataRequestEligibilityClaim::create(vrf, &secret_key, vrf_input, dr_hash).unwrap();
     // Sign commitment
     let cs = sign_t(&cb);
     let c_tx = CommitTransaction::new(cb, vec![cs]);
@@ -2250,6 +2262,7 @@ fn commitment_dr_in_reveal_stage() {
     let x = validate_commit_transaction(
         &c_tx,
         &dr_pool,
+        vrf_input,
         commit_beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -2278,6 +2291,7 @@ fn commitment_timelock() {
     let test_commit_epoch = |epoch, time_lock| {
         let mut dr_pool = DataRequestPool::default();
         let commit_beacon = CheckpointBeacon::default();
+        let vrf_input = CheckpointBeacon::default();
         let vrf = &mut VrfCtx::secp256k1().unwrap();
         let rep_eng = ReputationEngine::new(100);
         let secret_key = SecretKey {
@@ -2312,7 +2326,7 @@ fn commitment_timelock() {
         let mut cb = CommitTransactionBody::default();
         cb.dr_pointer = dr_hash;
         cb.proof =
-            DataRequestEligibilityClaim::create(vrf, &secret_key, commit_beacon, dr_hash).unwrap();
+            DataRequestEligibilityClaim::create(vrf, &secret_key, vrf_input, dr_hash).unwrap();
         // Sign commitment
         let cs = sign_t(&cb);
         let c_tx = CommitTransaction::new(cb, vec![cs]);
@@ -2321,6 +2335,7 @@ fn commitment_timelock() {
         validate_commit_transaction(
             &c_tx,
             &dr_pool,
+            vrf_input,
             commit_beacon,
             &mut signatures_to_verify,
             &rep_eng,
@@ -3973,8 +3988,11 @@ static BOOTSTRAP_HASH: &str = "4404291750b0cff95068e9894040e84e27cfdab1cb14f8c59
 static GENESIS_BLOCK_HASH: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
 static LAST_BLOCK_HASH: &str = "62adde3e36db3f22774cc255215b2833575f66bf2204011f80c03d34c7c9ea41";
+static LAST_VRF_INPUT: &str = "4da71b67e7e50ae4ad06a71e505244f8b490da55fc58c50386c908f7146d2239";
+
 
 fn test_block<F: FnMut(&mut Block) -> bool>(mut_block: F) -> Result<(), failure::Error> {
+
     test_block_with_drpool(mut_block, DataRequestPool::default())
 }
 
@@ -4001,6 +4019,7 @@ fn test_block_with_drpool<F: FnMut(&mut Block) -> bool>(
     };
     let current_epoch = 1000;
     let last_block_hash = LAST_BLOCK_HASH.parse().unwrap();
+    let last_vrf_input = LAST_VRF_INPUT.parse().unwrap();
     let chain_beacon = CheckpointBeacon {
         checkpoint: current_epoch,
         hash_prev_block: last_block_hash,
@@ -4009,6 +4028,12 @@ fn test_block_with_drpool<F: FnMut(&mut Block) -> bool>(
         checkpoint: current_epoch,
         hash_prev_block: last_block_hash,
     };
+
+    let vrf_input = CheckpointBeacon {
+        checkpoint: current_epoch,
+        hash_prev_block: last_vrf_input,
+    };
+
     let my_pkh = PublicKeyHash::default();
     let mining_bf = 8;
     let bootstrap_hash = BOOTSTRAP_HASH.parse().unwrap();
@@ -4027,7 +4052,7 @@ fn test_block_with_drpool<F: FnMut(&mut Block) -> bool>(
     let mut block_header = BlockHeader::default();
     build_merkle_tree(&mut block_header, &txns);
     block_header.beacon = block_beacon;
-    block_header.proof = BlockEligibilityClaim::create(vrf, &secret_key, block_beacon).unwrap();
+    block_header.proof = BlockEligibilityClaim::create(vrf, &secret_key, vrf_input).unwrap();
 
     let block_sig = sign_t(&block_header);
     let mut b = Block {
@@ -4046,6 +4071,7 @@ fn test_block_with_drpool<F: FnMut(&mut Block) -> bool>(
     validate_candidate(
         &b,
         current_epoch,
+        vrf_input,
         &mut signatures_to_verify,
         u32::try_from(rep_eng.ars().active_identities_number())?,
         mining_bf,
@@ -4056,6 +4082,7 @@ fn test_block_with_drpool<F: FnMut(&mut Block) -> bool>(
     validate_block(
         &b,
         current_epoch,
+        vrf_input,
         chain_beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -4070,6 +4097,7 @@ fn test_block_with_drpool<F: FnMut(&mut Block) -> bool>(
         &utxo_set,
         &dr_pool,
         &b,
+        vrf_input,
         &mut signatures_to_verify,
         &rep_eng,
         genesis_block_hash,
@@ -4147,15 +4175,6 @@ fn block_unknown_hash_prev_block() {
         assert_ne!(unknown_hash, b.block_header.beacon.hash_prev_block);
         b.block_header.beacon.hash_prev_block = unknown_hash;
 
-        // Re-create a valid VRF proof
-        let vrf = &mut VrfCtx::secp256k1().unwrap();
-        let secret_key = SecretKey {
-            bytes: Protected::from(vec![0xcd; 32]),
-        };
-
-        b.block_header.proof =
-            BlockEligibilityClaim::create(vrf, &secret_key, b.block_header.beacon).unwrap();
-
         true
     });
     assert_eq!(
@@ -4175,6 +4194,13 @@ fn block_hash_prev_block_genesis_hash() {
     let genesis_hash = Hash::default();
     let last_block_hash = LAST_BLOCK_HASH.parse().unwrap();
 
+    let last_vrf_input = LAST_VRF_INPUT.parse().unwrap();
+
+    let vrf_input = CheckpointBeacon {
+        checkpoint: 1000,
+        hash_prev_block: last_vrf_input,
+    };
+
     let x = test_block(|b| {
         assert_ne!(genesis_hash, b.block_header.beacon.hash_prev_block);
         b.block_header.beacon.hash_prev_block = genesis_hash;
@@ -4186,7 +4212,7 @@ fn block_hash_prev_block_genesis_hash() {
         };
 
         b.block_header.proof =
-            BlockEligibilityClaim::create(vrf, &secret_key, b.block_header.beacon).unwrap();
+            BlockEligibilityClaim::create(vrf, &secret_key, vrf_input).unwrap();
 
         true
     });
@@ -4240,10 +4266,18 @@ fn block_difficult_proof() {
     };
     let current_epoch = 1000;
     let last_block_hash = LAST_BLOCK_HASH.parse().unwrap();
+    let last_vrf_input = LAST_VRF_INPUT.parse().unwrap();
+
     let chain_beacon = CheckpointBeacon {
         checkpoint: current_epoch,
         hash_prev_block: last_block_hash,
     };
+
+    let vrf_input = CheckpointBeacon {
+        checkpoint: current_epoch,
+        hash_prev_block: last_vrf_input,
+    };
+
     let block_beacon = CheckpointBeacon {
         checkpoint: current_epoch,
         hash_prev_block: last_block_hash,
@@ -4266,7 +4300,7 @@ fn block_difficult_proof() {
     let mut block_header = BlockHeader::default();
     build_merkle_tree(&mut block_header, &txns);
     block_header.beacon = block_beacon;
-    block_header.proof = BlockEligibilityClaim::create(vrf, &secret_key, block_beacon).unwrap();
+    block_header.proof = BlockEligibilityClaim::create(vrf, &secret_key, vrf_input).unwrap();
 
     let block_sig = sign_t(&block_header);
     let b = Block {
@@ -4280,6 +4314,7 @@ fn block_difficult_proof() {
             validate_candidate(
                 &b,
                 current_epoch,
+                vrf_input,
                 &mut signatures_to_verify,
                 u32::try_from(rep_eng.ars().active_identities_number())?,
                 mining_bf,
@@ -4290,6 +4325,7 @@ fn block_difficult_proof() {
             validate_block(
                 &b,
                 current_epoch,
+                vrf_input,
                 chain_beacon,
                 &mut signatures_to_verify,
                 &rep_eng,
@@ -4304,6 +4340,7 @@ fn block_difficult_proof() {
                 &utxo_set,
                 &dr_pool,
                 &b,
+                vrf_input,
                 &mut signatures_to_verify,
                 &rep_eng,
                 genesis_block_hash,
@@ -4320,7 +4357,7 @@ fn block_difficult_proof() {
     assert_eq!(
         x.unwrap_err().downcast::<BlockError>().unwrap(),
         BlockError::BlockEligibilityDoesNotMeetTarget {
-            vrf_hash: "40167423312aad76b13613d822d8fc677b8db84667202c33fbbaeb3008906bdc"
+            vrf_hash: "a6e9f38e1115d940b735b391c401a019554da6c7bac2ca022c00f1718892aacf"
                 .parse()
                 .unwrap(),
             target_hash: Hash::with_first_u32(0x03ff_ffff),
@@ -4690,11 +4727,20 @@ fn block_change_signature() {
 }
 
 #[test]
-fn block_change_hash_prev_block() {
+fn block_change_hash_prev_vrf() {
     let x = test_block(|b| {
         let fake_hash = Hash::default();
-        b.block_header.beacon.hash_prev_block = fake_hash;
-
+        // Re-create a valid VRF proof
+        let vrf = &mut VrfCtx::secp256k1().unwrap();
+        let secret_key = SecretKey {
+            bytes: Protected::from(vec![0xcd; 32]),
+        };
+        let vrf_input = CheckpointBeacon {
+            checkpoint: 1000,
+            hash_prev_block: fake_hash,
+        };
+        b.block_header.proof =
+        BlockEligibilityClaim::create(vrf, &secret_key, vrf_input).unwrap();
         false
     });
     assert_eq!(
@@ -4758,6 +4804,7 @@ fn test_blocks(txns: Vec<(BlockTransactions, u64)>) -> Result<(), failure::Error
     };
     let mut current_epoch = 1000;
     let mut last_block_hash = LAST_BLOCK_HASH.parse().unwrap();
+    let last_vrf_input = LAST_VRF_INPUT.parse().unwrap();
     let my_pkh = PublicKeyHash::default();
 
     for (mut txns, fees) in txns {
@@ -4771,6 +4818,11 @@ fn test_blocks(txns: Vec<(BlockTransactions, u64)>) -> Result<(), failure::Error
             },
         );
 
+        let vrf_input = CheckpointBeacon {
+            checkpoint: current_epoch,
+            hash_prev_block: last_vrf_input,
+        };
+
         let chain_beacon = CheckpointBeacon {
             checkpoint: current_epoch,
             hash_prev_block: last_block_hash,
@@ -4782,7 +4834,7 @@ fn test_blocks(txns: Vec<(BlockTransactions, u64)>) -> Result<(), failure::Error
         let mut block_header = BlockHeader::default();
         build_merkle_tree(&mut block_header, &txns);
         block_header.beacon = block_beacon;
-        block_header.proof = BlockEligibilityClaim::create(vrf, &secret_key, block_beacon).unwrap();
+        block_header.proof = BlockEligibilityClaim::create(vrf, &secret_key, vrf_input).unwrap();
 
         let block_sig = KeyedSignature::default();
         let mut b = Block {
@@ -4801,6 +4853,7 @@ fn test_blocks(txns: Vec<(BlockTransactions, u64)>) -> Result<(), failure::Error
         validate_candidate(
             &b,
             current_epoch,
+            vrf_input,
             &mut signatures_to_verify,
             u32::try_from(rep_eng.ars().active_identities_number())?,
             mining_bf,
@@ -4812,6 +4865,7 @@ fn test_blocks(txns: Vec<(BlockTransactions, u64)>) -> Result<(), failure::Error
         validate_block(
             &b,
             current_epoch,
+            vrf_input,
             chain_beacon,
             &mut signatures_to_verify,
             &rep_eng,
@@ -4827,6 +4881,7 @@ fn test_blocks(txns: Vec<(BlockTransactions, u64)>) -> Result<(), failure::Error
             &utxo_set,
             &dr_pool,
             &b,
+            vrf_input,
             &mut signatures_to_verify,
             &rep_eng,
             genesis_block_hash,
@@ -5238,6 +5293,7 @@ fn genesis_block_after_not_bootstrap_hash() {
     // is different from bootstrap hash
     let bootstrap_hash = BOOTSTRAP_HASH.parse().unwrap();
     let b = Block::genesis(bootstrap_hash, vec![]);
+    let vrf_input = CheckpointBeacon::default();
 
     let rep_eng = ReputationEngine::new(100);
 
@@ -5258,6 +5314,7 @@ fn genesis_block_after_not_bootstrap_hash() {
     let x = validate_block(
         &b,
         current_epoch,
+        vrf_input,
         chain_beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -5306,12 +5363,14 @@ fn genesis_block_value_overflow() {
     let mining_bf = 1;
     let bootstrap_hash = BOOTSTRAP_HASH.parse().unwrap();
     let genesis_block_hash = b.hash();
+    let vrf_input = CheckpointBeacon::default();
     let mut signatures_to_verify = vec![];
 
     // Validate block
     validate_block(
         &b,
         current_epoch,
+        vrf_input,
         chain_beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -5328,6 +5387,7 @@ fn genesis_block_value_overflow() {
         &utxo_set,
         &dr_pool,
         &b,
+        vrf_input,
         &mut signatures_to_verify,
         &rep_eng,
         genesis_block_hash,
@@ -5346,6 +5406,8 @@ fn genesis_block_value_overflow() {
 fn genesis_block_full_validate() {
     let bootstrap_hash = BOOTSTRAP_HASH.parse().unwrap();
     let b = Block::genesis(bootstrap_hash, vec![]);
+    let vrf_input = CheckpointBeacon::default();
+
 
     let dr_pool = DataRequestPool::default();
     let rep_eng = ReputationEngine::new(100);
@@ -5367,6 +5429,7 @@ fn genesis_block_full_validate() {
     validate_block(
         &b,
         current_epoch,
+        vrf_input,
         chain_beacon,
         &mut signatures_to_verify,
         &rep_eng,
@@ -5383,6 +5446,7 @@ fn genesis_block_full_validate() {
         &utxo_set,
         &dr_pool,
         &b,
+        vrf_input,
         &mut signatures_to_verify,
         &rep_eng,
         genesis_block_hash,

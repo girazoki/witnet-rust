@@ -288,11 +288,14 @@ impl ChainManager {
                 trace!("Called process_requested_block when current_epoch is None");
             }
             let chain_beacon = chain_info.highest_block_checkpoint;
+            let mut vrf_input = chain_info.highest_vrf_output;
+            vrf_input.checkpoint = block.block_header.beacon.checkpoint;
             let mining_bf = chain_info.consensus_constants.mining_backup_factor;
 
             let utxo_diff = process_validations(
                 block,
                 self.current_epoch.unwrap_or_default(),
+                vrf_input,
                 chain_beacon,
                 rep_engine,
                 epoch_constants,
@@ -334,9 +337,17 @@ impl ChainManager {
                     .consensus_constants
                     .mining_backup_factor;
                 let mut signatures_to_verify = vec![];
+                let mut vrf_input = self
+                .chain_state
+                .chain_info
+                .as_ref()
+                .unwrap()
+                .highest_vrf_output;
+                vrf_input.checkpoint = current_epoch;
                 match validate_candidate(
                     &block,
                     current_epoch,
+                    vrf_input,
                     &mut signatures_to_verify,
                     total_identities,
                     mining_bf,
@@ -403,6 +414,31 @@ impl ChainManager {
                     hash_prev_block: block_hash,
                 };
 
+                // Get VRF context
+                let vrf_ctx = match self.vrf_ctx.as_mut() {
+                    Some(x) => x,
+                    None => {
+                        error!("No VRF context available");
+                        return;
+                    }
+                };
+
+                // If synching from genesis, start consolidating as genesis hash.
+                // Else, take hash the proof to obtain the new vrf output.
+                let vrf_input = match block_epoch {
+                    0 => CheckpointBeacon {
+                        checkpoint: block_epoch,
+                        hash_prev_block: block_hash,
+                    },
+                    _ => {
+                        let proof_hash = block.block_header.proof.proof_to_hash(vrf_ctx).unwrap();
+                        CheckpointBeacon {
+                            checkpoint: block_epoch,
+                            hash_prev_block: proof_hash,
+                        }
+                    },
+                };
+
                 // Print reputation logs on debug level on synced state,
                 // but on trace level while synchronizing
                 let log_level = if let StateMachine::Synced = self.sm_state {
@@ -411,7 +447,10 @@ impl ChainManager {
                     log::Level::Trace
                 };
 
+                // Update beacon and vrf output
                 chain_info.highest_block_checkpoint = beacon;
+                chain_info.highest_vrf_output = vrf_input;
+
                 let rep_info = update_pools(
                     &block,
                     &mut self.chain_state.unspent_outputs_pool,
@@ -576,6 +615,8 @@ impl ChainManager {
             }
 
             let mut signatures_to_verify = vec![];
+            let mut vrf_input = chain_info.highest_vrf_output;
+            vrf_input.checkpoint = current_epoch;
             let fut = futures::future::result(validate_new_transaction(
                 msg.transaction.clone(),
                 (
@@ -583,6 +624,7 @@ impl ChainManager {
                     &self.chain_state.unspent_outputs_pool,
                     &self.chain_state.data_request_pool,
                 ),
+                vrf_input,
                 chain_info.highest_block_checkpoint.hash_prev_block,
                 current_epoch,
                 epoch_constants,
@@ -631,6 +673,7 @@ impl ChainManager {
         &mut self,
         block: Block,
         current_epoch: Epoch,
+        vrf_input: CheckpointBeacon,
         chain_beacon: CheckpointBeacon,
         epoch_constants: EpochConstants,
         mining_bf: u32,
@@ -639,6 +682,7 @@ impl ChainManager {
         let fut = futures::future::result(validate_block(
             &block,
             current_epoch,
+            vrf_input,
             chain_beacon,
             &mut signatures_to_verify,
             self.chain_state.reputation_engine.as_ref().unwrap(),
@@ -654,6 +698,7 @@ impl ChainManager {
                 &act.chain_state.unspent_outputs_pool,
                 &act.chain_state.data_request_pool,
                 &block,
+                vrf_input,
                 &mut signatures_to_verify,
                 act.chain_state.reputation_engine.as_ref().unwrap(),
                 act.genesis_block_hash,
@@ -672,6 +717,7 @@ impl ChainManager {
 pub fn process_validations(
     block: &Block,
     current_epoch: Epoch,
+    vrf_input: CheckpointBeacon,
     chain_beacon: CheckpointBeacon,
     rep_eng: &ReputationEngine,
     epoch_constants: EpochConstants,
@@ -687,6 +733,7 @@ pub fn process_validations(
     validate_block(
         block,
         current_epoch,
+        vrf_input,
         chain_beacon,
         &mut signatures_to_verify,
         rep_eng,
@@ -701,6 +748,7 @@ pub fn process_validations(
         utxo_set,
         dr_pool,
         block,
+        vrf_input,
         &mut signatures_to_verify,
         rep_eng,
         genesis_block_hash,

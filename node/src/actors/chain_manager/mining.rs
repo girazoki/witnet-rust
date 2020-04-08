@@ -38,7 +38,7 @@ use crate::{
     actors::{
         chain_manager::{transaction_factory::sign_transaction, ChainManager, StateMachine},
         messages::{
-            AddCandidates, AddCommitReveal, GetHighestCheckpointBeacon, ResolveRA, RunTally,
+            AddCandidates, AddCommitReveal, GetHighestCheckpointBeacon, GetHighestVrfInput, ResolveRA, RunTally,
         },
         rad_manager::RadManager,
     },
@@ -111,6 +111,13 @@ impl ChainManager {
             _ => return,
         };
 
+        // Check eligibility
+        // S(H(beacon))
+        let mut vrf_input = match self.handle(GetHighestVrfInput, ctx) {
+            Ok(b) => b,
+            _ => return,
+        };
+
         if beacon.checkpoint >= current_epoch {
             // We got a block from the future
             // Due to block consolidation from epoch N is done in epoch N+1,
@@ -127,10 +134,12 @@ impl ChainManager {
         // The highest checkpoint beacon should contain the current epoch
         beacon.checkpoint = current_epoch;
 
+        vrf_input.checkpoint = current_epoch;
+
         let own_pkh = self.own_pkh.unwrap_or_default();
 
         // Create a VRF proof and if eligible build block
-        signature_mngr::vrf_prove(VrfMessage::block_mining(beacon))
+        signature_mngr::vrf_prove(VrfMessage::block_mining(vrf_input))
             .map_err(|e| log::error!("Failed to create block eligibility proof: {}", e))
             .map(move |(vrf_proof, vrf_proof_hash)| {
                 // invalid: vrf_hash > target_hash
@@ -203,6 +212,7 @@ impl ChainManager {
                 act.future_process_validations(
                     block.clone(),
                     current_epoch,
+                    vrf_input,
                     beacon,
                     epoch_constants,
                     mining_bf,
@@ -231,19 +241,19 @@ impl ChainManager {
     /// Try to mine a data_request
     // TODO: refactor this procedure into multiple functions that can be tested separately.
     pub fn try_mine_data_request(&mut self, ctx: &mut Context<Self>) {
-        let beacon = self
+        let vrf_input = self
             .chain_state
             .chain_info
             .as_ref()
-            .map(|x| x.highest_block_checkpoint);
+            .map(|x| x.highest_vrf_output);
 
-        if self.current_epoch.is_none() || self.own_pkh.is_none() || beacon.is_none() {
+        if self.current_epoch.is_none() || self.own_pkh.is_none() || vrf_input.is_none() {
             log::warn!("Cannot mine a data request because current epoch or own pkh is unknown");
 
             return;
         }
 
-        let beacon = beacon.unwrap();
+        let vrf_input = vrf_input.unwrap();
         let own_pkh = self.own_pkh.unwrap();
         let current_epoch = self.current_epoch.unwrap();
         let data_request_timeout = self.data_request_timeout;
@@ -281,10 +291,10 @@ impl ChainManager {
         }) {
             let num_witnesses = data_request_output.witnesses;
             let num_backup_witnesses = data_request_output.backup_witnesses;
-            // The beacon used to create and verify data requests must be set to the current epoch
-            let dr_beacon = CheckpointBeacon {
+            // The vrf_input used to create and verify data requests must be set to the current epoch
+            let dr_vrf_input = CheckpointBeacon {
                 checkpoint: current_epoch,
-                ..beacon
+                ..vrf_input
             };
 
             let (target_hash, probability) =
@@ -296,7 +306,7 @@ impl ChainManager {
                 u16::try_from(data_request_output.data_request.retrieve.len())
                     .unwrap_or(core::u16::MAX);
 
-            signature_mngr::vrf_prove(VrfMessage::data_request(dr_beacon, dr_pointer))
+            signature_mngr::vrf_prove(VrfMessage::data_request(dr_vrf_input, dr_pointer))
                 .map_err(move |e| {
                     log::error!(
                         "Couldn't create VRF proof for data request {}: {}",

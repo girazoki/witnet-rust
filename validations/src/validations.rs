@@ -646,6 +646,7 @@ pub fn validate_data_request_output(request: &DataRequestOutput) -> Result<(), T
 pub fn validate_commit_transaction(
     co_tx: &CommitTransaction,
     dr_pool: &DataRequestPool,
+    vrf_input: CheckpointBeacon,
     beacon: CheckpointBeacon,
     signatures_to_verify: &mut Vec<SignaturesToVerify>,
     rep_eng: &ReputationEngine,
@@ -694,7 +695,7 @@ pub fn validate_commit_transaction(
     add_dr_vrf_signature_to_verify(
         signatures_to_verify,
         &co_tx.body.proof,
-        beacon,
+        vrf_input,
         co_tx.body.dr_pointer,
         target_hash,
     );
@@ -1121,6 +1122,7 @@ pub fn validate_block_transactions(
     utxo_set: &UnspentOutputsPool,
     dr_pool: &DataRequestPool,
     block: &Block,
+    vrf_input: CheckpointBeacon,
     signatures_to_verify: &mut Vec<SignaturesToVerify>,
     rep_eng: &ReputationEngine,
     genesis_block_hash: Hash,
@@ -1202,6 +1204,7 @@ pub fn validate_block_transactions(
         let (dr_pointer, dr_witnesses, fee) = validate_commit_transaction(
             &transaction,
             dr_pool,
+            vrf_input,
             block_beacon,
             signatures_to_verify,
             rep_eng,
@@ -1317,6 +1320,7 @@ pub fn validate_block_transactions(
 pub fn validate_block(
     block: &Block,
     current_epoch: Epoch,
+    vrf_input: CheckpointBeacon,
     chain_beacon: CheckpointBeacon,
     signatures_to_verify: &mut Vec<SignaturesToVerify>,
     rep_eng: &ReputationEngine,
@@ -1356,7 +1360,7 @@ pub fn validate_block(
         add_block_vrf_signature_to_verify(
             signatures_to_verify,
             &block.block_header.proof,
-            block.block_header.beacon,
+            vrf_input,
             target_hash,
         );
 
@@ -1400,6 +1404,7 @@ pub fn validate_genesis_block(
 pub fn validate_candidate(
     block: &Block,
     current_epoch: Epoch,
+    vrf_input: CheckpointBeacon,
     signatures_to_verify: &mut Vec<SignaturesToVerify>,
     total_identities: u32,
     mining_bf: u32,
@@ -1416,7 +1421,7 @@ pub fn validate_candidate(
     add_block_vrf_signature_to_verify(
         signatures_to_verify,
         &block.block_header.proof,
-        block.block_header.beacon,
+        vrf_input,
         target_hash,
     );
 
@@ -1431,6 +1436,7 @@ pub fn validate_new_transaction(
         &UnspentOutputsPool,
         &DataRequestPool,
     ),
+    vrf_input: CheckpointBeacon,
     current_block_hash: Hash,
     current_epoch: Epoch,
     epoch_constants: EpochConstants,
@@ -1466,6 +1472,7 @@ pub fn validate_new_transaction(
             validate_commit_transaction(
                 &tx,
                 &data_request_pool,
+                vrf_input,
                 dr_beacon,
                 signatures_to_verify,
                 &reputation_engine,
@@ -2813,6 +2820,7 @@ mod tests {
         let res = validate_candidate(
             &block,
             current_epoch,
+            block.block_header.beacon,
             &mut signatures_to_verify,
             total_identities,
             mining_bf,

@@ -22,7 +22,7 @@ use crate::{
         messages::{
             AddBlocks, AddCandidates, AddCommitReveal, AddTransaction, Anycast, Broadcast,
             BuildDrt, BuildVtt, EpochNotification, GetBalance, GetBlocksEpochRange,
-            GetDataRequestReport, GetHighestCheckpointBeacon, GetMemoryTransaction, GetReputation,
+            GetDataRequestReport, GetHighestCheckpointBeacon, GetHighestVrfInput, GetMemoryTransaction, GetReputation,
             GetReputationAll, GetReputationStatus, GetReputationStatusResult, GetState,
             PeersBeacons, SendLastBeacon, SessionUnitResult, TryMineBlock,
         },
@@ -154,6 +154,8 @@ impl Handler<EpochNotification<EveryEpochPayload>> for ChainManager {
                     {
                         let block_pkh = &block_candidate.block_sig.public_key.pkh();
                         let reputation = rep_engine.trs().get(block_pkh);
+                        let mut vrf_input = chain_info.highest_vrf_output;
+                        vrf_input.checkpoint = block_candidate.block_header.beacon.checkpoint;
 
                         if let Some((chosen_key, chosen_reputation, chosen_vrf_proof, _, _)) =
                             chosen_candidate
@@ -175,6 +177,7 @@ impl Handler<EpochNotification<EveryEpochPayload>> for ChainManager {
                         match process_validations(
                             &block_candidate,
                             current_epoch,
+                            vrf_input,
                             chain_info.highest_block_checkpoint,
                             rep_engine,
                             self.epoch_constants.unwrap(),
@@ -266,6 +269,25 @@ impl Handler<GetHighestCheckpointBeacon> for ChainManager {
     ) -> Self::Result {
         if let Some(chain_info) = &self.chain_state.chain_info {
             Ok(chain_info.highest_block_checkpoint)
+        } else {
+            log::error!("No ChainInfo loaded in ChainManager");
+
+            Err(ChainInfoError::ChainInfoNotFound.into())
+        }
+    }
+}
+
+/// Handler for GetHighestVrfInput message
+impl Handler<GetHighestVrfInput> for ChainManager {
+    type Result = Result<CheckpointBeacon, failure::Error>;
+
+    fn handle(
+        &mut self,
+        _msg: GetHighestVrfInput,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        if let Some(chain_info) = &self.chain_state.chain_info {
+            Ok(chain_info.highest_vrf_output)
         } else {
             log::error!("No ChainInfo loaded in ChainManager");
 

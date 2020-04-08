@@ -55,6 +55,14 @@ impl Message for GetHighestCheckpointBeacon {
     type Result = Result<CheckpointBeacon, failure::Error>;
 }
 
+/// Message to obtain the highest block checkpoint managed by the `ChainManager`
+/// actor.
+pub struct GetHighestVrfInput;
+
+impl Message for GetHighestVrfInput {
+    type Result = Result<CheckpointBeacon, failure::Error>;
+}
+
 /// Add a new block
 pub struct AddBlocks {
     /// Blocks
