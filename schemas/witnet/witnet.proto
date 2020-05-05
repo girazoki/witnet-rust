@@ -299,3 +299,11 @@ message DataRequestVrfMessage {
 message DataRequestEligibilityClaim {
     VrfProof proof = 1;
 }
+
+message SuperBlock {
+    Hash data_request_root = 1;
+    Hash tally_root = 2;
+    Hash ars_root = 3;
+    Hash last_superblock = 4;
+    uint64 index = 5;
+}

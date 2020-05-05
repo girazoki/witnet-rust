@@ -540,6 +540,28 @@ pub struct BlockMerkleRoots {
     pub tally_hash_merkle_root: Hash,
 }
 
+/// Block merkle tree roots
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize, ProtobufConvert, Default)]
+#[protobuf_convert(pb = "witnet::SuperBlock")]
+pub struct SuperBlock {
+    /// Merkle root of the last superblock period blocks data request merkles root
+    pub data_request_root: Hash,
+    /// Merkle root of the last superblock period blocks tally merkles root
+    pub tally_root: Hash,
+    /// Merkle root of the current Active Reputation Set members
+    pub ars_root: Hash,
+    /// Last superblock hash
+    pub last_superblock: Hash,
+    /// Superblock index,
+    pub index: u64,
+}
+
+impl Hashable for SuperBlock {
+    fn hash(&self) -> Hash {
+        calculate_sha256(&self.to_pb_bytes().unwrap()).into()
+    }
+}
+
 /// Digital signatures structure (based on supported cryptosystems)
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize, ProtobufConvert)]
 #[protobuf_convert(pb = "witnet::Signature")]
