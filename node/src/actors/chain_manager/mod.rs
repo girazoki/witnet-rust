@@ -167,6 +167,8 @@ pub struct ChainManager {
     tx_pending_timeout: u64,
     /// Magic number from ConsensusConstants
     magic: u16,
+    /// Superblock beacon
+    last_superblock_beacon: Option<CheckpointBeacon>,
 }
 
 /// Required trait for being able to retrieve ChainManager address from registry

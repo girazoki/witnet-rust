@@ -33,20 +33,24 @@ use witnet_rad::{error::RadError, types::serial_iter_decode};
 use witnet_util::timestamp::get_timestamp;
 use witnet_validations::validations::{
     block_reward, calculate_randpoe_threshold, calculate_reppoe_threshold, dr_transaction_fee,
-    merkle_tree_root, update_utxo_diff, vt_transaction_fee, UtxoDiff,
+    hash_merkle_tree_root, merkle_tree_root, update_utxo_diff, vt_transaction_fee, UtxoDiff,
 };
 
+use crate::actors::messages::{GetBlocksEpochRange, GetItemBlock};
 use crate::{
     actors::{
         chain_manager::{
             transaction_factory::{build_commit_collateral, sign_transaction},
             ChainManager, StateMachine,
         },
+        inventory_manager::InventoryManager,
         messages::{AddCandidates, AddCommitReveal, ResolveRA, RunTally},
         rad_manager::RadManager,
     },
     signature_mngr,
 };
+use itertools::Itertools;
+use witnet_data_structures::chain::{Hash, SuperBlock};
 
 impl ChainManager {
     /// Try to mine a block
@@ -124,6 +128,80 @@ impl ChainManager {
         vrf_input.checkpoint = current_epoch;
 
         let own_pkh = self.own_pkh.unwrap_or_default();
+
+        let superblock_period = u32::from(chain_info.consensus_constants.superblock_period);
+        if rep_engine.ars().contains(&own_pkh) && current_epoch % superblock_period == 0 {
+            // Create a superblock
+            let superblock_index = current_epoch / superblock_period;
+            let beacon = self.last_superblock_beacon.unwrap_or(CheckpointBeacon {
+                checkpoint: 0,
+                hash_prev_block: chain_info.consensus_constants.genesis_hash,
+            });
+
+            let ars_members: Vec<PublicKeyHash> = rep_engine
+                .ars()
+                .active_identities()
+                .cloned()
+                .sorted()
+                .collect();
+
+            let inventory_manager = InventoryManager::from_registry();
+
+            let init_epoch = current_epoch - superblock_period;
+            let init_epoch = init_epoch.saturating_sub(2);
+            let final_epoch = current_epoch.saturating_sub(2);
+
+            futures::future::ok(self.handle(
+                GetBlocksEpochRange::new_with_limit(init_epoch..=final_epoch, 0),
+                ctx,
+            ))
+            .and_then(move |res| match res {
+                Ok(v) => {
+                    let block_hashes: Vec<Hash> =
+                        v.into_iter().map(|(_epoch, hash)| hash).collect();
+
+                    futures::future::ok(block_hashes)
+                }
+                _ => futures::future::err(()),
+            })
+            .and_then(move |block_hashes| {
+                let aux = block_hashes.into_iter().map(move |hash| {
+                    inventory_manager
+                        .send(GetItemBlock { hash })
+                        .then(move |res| match res {
+                            Ok(Ok(block)) => futures::future::ok(block.block_header),
+                            _ => futures::future::err(()),
+                        })
+                        .then(|x| futures::future::ok(x.ok()))
+                });
+
+                join_all(aux)
+                    // Map Option<Vec<T>> to Vec<T>, this returns all the non-error results
+                    .map(|x| x.into_iter().flatten().collect::<Vec<BlockHeader>>())
+            })
+            .into_actor(self)
+            .and_then(move |block_headers, act, _ctx| {
+                let mut superblock = build_superblock(&block_headers, &ars_members, beacon);
+                superblock.beacon.checkpoint = superblock_index;
+
+                let superblock_hash = superblock.hash();
+
+                let new_superblock_beacon = CheckpointBeacon {
+                    checkpoint: superblock_index,
+                    hash_prev_block: superblock_hash,
+                };
+
+                log::error!("SUPERBLOCK: {:?}", superblock);
+
+                // TODO: Bootstrapping SUPERBLOCK to the people
+
+                act.last_superblock_beacon = Some(new_superblock_beacon);
+
+                actix::fut::ok(())
+            })
+            .map_err(|e, _, _| log::error!("SUPERBLOCK ERROR: {:?}", e))
+            .wait(ctx)
+        }
 
         // Create a VRF proof and if eligible build block
         signature_mngr::vrf_prove(VrfMessage::block_mining(vrf_input))
@@ -834,6 +912,30 @@ fn build_block(
     };
 
     (block_header, txns)
+}
+
+fn build_superblock(
+    block_headers: &[BlockHeader],
+    ars_identities: &[PublicKeyHash],
+    last_superblock_beacon: CheckpointBeacon,
+) -> SuperBlock {
+    let merkle_drs: Vec<Hash> = block_headers
+        .iter()
+        .map(|b| b.merkle_roots.dr_hash_merkle_root)
+        .collect();
+    let merkle_tallies: Vec<Hash> = block_headers
+        .iter()
+        .map(|b| b.merkle_roots.tally_hash_merkle_root)
+        .collect();
+
+    let pkh_hashes: Vec<Hash> = ars_identities.iter().map(|pkh| pkh.hash()).collect();
+
+    SuperBlock {
+        data_request_root: hash_merkle_tree_root(&merkle_drs),
+        tally_root: hash_merkle_tree_root(&merkle_tallies),
+        ars_root: hash_merkle_tree_root(&pkh_hashes),
+        beacon: last_superblock_beacon,
+    }
 }
 
 #[allow(clippy::many_single_char_names)]
