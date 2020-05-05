@@ -283,6 +283,7 @@ message ConsensusConstants {
     uint32 mining_replication_factor = 12;
     uint64 collateral_minimum = 13;
     uint32 collateral_age = 14;
+    uint32 superblock_period = 15;
 }
 
 message VrfProof {
