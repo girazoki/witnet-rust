@@ -550,10 +550,12 @@ pub struct SuperBlock {
     pub tally_root: Hash,
     /// Merkle root of the current Active Reputation Set members
     pub ars_root: Hash,
-    /// Last superblock hash
-    pub last_superblock: Hash,
     /// Superblock index,
-    pub index: u64,
+    pub index: u32,
+    /// Superblock prev hash,
+    pub prev_block_hash_id: Hash,
+    /// Superblock current hash,
+    pub current_block_hash_id: Hash,
 }
 
 impl Hashable for SuperBlock {
@@ -817,6 +819,12 @@ impl fmt::Display for PublicKeyHash {
         let address = self.bech32(get_environment());
 
         f.write_str(&address)
+    }
+}
+
+impl Hashable for PublicKeyHash {
+    fn hash(&self) -> Hash {
+        calculate_sha256(&self.to_pb_bytes().unwrap()).into()
     }
 }
 

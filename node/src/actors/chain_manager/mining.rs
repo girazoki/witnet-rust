@@ -33,20 +33,24 @@ use witnet_rad::{error::RadError, types::serial_iter_decode};
 use witnet_util::timestamp::get_timestamp;
 use witnet_validations::validations::{
     block_reward, calculate_randpoe_threshold, calculate_reppoe_threshold, dr_transaction_fee,
-    merkle_tree_root, update_utxo_diff, vt_transaction_fee, UtxoDiff,
+    hash_merkle_tree_root, merkle_tree_root, update_utxo_diff, vt_transaction_fee, UtxoDiff,
 };
 
+use crate::actors::messages::{GetBlocksEpochRange, GetItemBlock};
 use crate::{
     actors::{
         chain_manager::{
             transaction_factory::{build_commit_collateral, sign_transaction},
             ChainManager, StateMachine,
         },
+        inventory_manager::InventoryManager,
         messages::{AddCandidates, AddCommitReveal, ResolveRA, RunTally},
         rad_manager::RadManager,
     },
     signature_mngr,
 };
+use itertools::Itertools;
+use witnet_data_structures::chain::{Hash, SuperBlock};
 
 impl ChainManager {
     /// Try to mine a block
@@ -93,7 +97,7 @@ impl ChainManager {
         let current_epoch = self.current_epoch.unwrap();
 
         let chain_info = self.chain_state.chain_info.as_ref().unwrap();
-
+        let genesis_hash = chain_info.consensus_constants.genesis_hash;
         let max_block_weight = chain_info.consensus_constants.max_block_weight;
 
         let mining_bf = chain_info.consensus_constants.mining_backup_factor;
@@ -124,6 +128,96 @@ impl ChainManager {
         vrf_input.checkpoint = current_epoch;
 
         let own_pkh = self.own_pkh.unwrap_or_default();
+
+        let superblock_period = u32::from(chain_info.consensus_constants.superblock_period);
+        if rep_engine.ars().contains(&own_pkh) && current_epoch % superblock_period == 0 {
+            // Create a superblock
+            let superblock_index = current_epoch / superblock_period;
+
+            let ars_members: Vec<PublicKeyHash> = rep_engine
+                .ars()
+                .active_identities()
+                .cloned()
+                .sorted()
+                .collect();
+
+            let inventory_manager = InventoryManager::from_registry();
+
+            let init_epoch = current_epoch - superblock_period;
+            let init_epoch = init_epoch.saturating_sub(1);
+            let final_epoch = current_epoch.saturating_sub(2);
+            log::error!("current epocj: {}, init_epoch : {}, final_epoch: {}", current_epoch, init_epoch, final_epoch);
+
+            futures::future::ok(self.handle(
+                GetBlocksEpochRange::new_with_limit(init_epoch..=final_epoch, 0),
+                ctx,
+            ))
+            .and_then(move |res| match res {
+                Ok(v) => {
+                    let block_hashes: Vec<Hash> =
+                        v.into_iter().map(|(_epoch, hash)| hash).collect();
+                    futures::future::ok(block_hashes)
+                }
+                _ => futures::future::err(()),
+            })
+            .and_then(move |block_hashes| {
+                let aux = block_hashes.into_iter().map(move |hash| {
+                    inventory_manager
+                        .send(GetItemBlock { hash })
+                        .then(move |res| match res {
+                            Ok(Ok(block)) => futures::future::ok(block.block_header),
+                            _ => futures::future::err(()),
+                        })
+                        .then(|x| futures::future::ok(x.ok()))
+                });
+
+                join_all(aux)
+                    // Map Option<Vec<T>> to Vec<T>, this returns all the non-error results
+                    .map(|x| x.into_iter().flatten().collect::<Vec<BlockHeader>>())
+            })
+            .into_actor(self)
+            .and_then(move |block_headers, act, ctx| {
+                let last_hash = act
+                    .handle(
+                        GetBlocksEpochRange::new_with_limit_from_end(
+                            ..init_epoch,
+                            1,
+                        ),
+                        ctx,
+                    )
+                    .map(move |v| {
+                        v.first()
+                            .map(|(_epoch, hash)| *hash)
+                            .unwrap_or(genesis_hash)
+                    });
+                match last_hash {
+                    Ok(last_hash) => {
+                        log::error!("last hash: {}",last_hash);
+                        actix::fut::ok((block_headers, last_hash))
+                    },
+                    _ => actix::fut::err(()),
+                }
+            })
+            .and_then(move |(block_headers, last_hash), _act, _ctx| {
+                let superblock =
+                    build_superblock(&block_headers, &ars_members, superblock_index, last_hash);
+
+                match superblock {
+                    Some(superblock) => {
+                        let superblock_hash = superblock.hash();
+                        log::error!("SUPERBLOCK: {:?}", superblock);
+                        log::error!("SUPERBLOCK hash: {:?}", superblock_hash);
+
+                        // TODO: Bootstrapping SUPERBLOCK to the people
+                    }
+                    None => log::warn!("No blocks to build a superblocks"),
+                }
+
+                actix::fut::ok(())
+            })
+            .map_err(|e, _, _| log::error!("SUPERBLOCK ERROR: {:?}", e))
+            .wait(ctx)
+        }
 
         // Create a VRF proof and if eligible build block
         signature_mngr::vrf_prove(VrfMessage::block_mining(vrf_input))
@@ -834,6 +928,34 @@ fn build_block(
     };
 
     (block_header, txns)
+}
+
+fn build_superblock(
+    block_headers: &[BlockHeader],
+    ars_identities: &[PublicKeyHash],
+    index: u32,
+    previous_hash: Hash,
+) -> Option<SuperBlock> {
+    let current_hash = block_headers.last()?.hash();
+    let merkle_drs: Vec<Hash> = block_headers
+        .iter()
+        .map(|b| b.merkle_roots.dr_hash_merkle_root)
+        .collect();
+    let merkle_tallies: Vec<Hash> = block_headers
+        .iter()
+        .map(|b| b.merkle_roots.tally_hash_merkle_root)
+        .collect();
+
+    let pkh_hashes: Vec<Hash> = ars_identities.iter().map(|pkh| pkh.hash()).collect();
+
+    Some(SuperBlock {
+        data_request_root: hash_merkle_tree_root(&merkle_drs),
+        tally_root: hash_merkle_tree_root(&merkle_tallies),
+        ars_root: hash_merkle_tree_root(&pkh_hashes),
+        index,
+        prev_block_hash_id: previous_hash,
+        current_block_hash_id: current_hash,
+    })
 }
 
 #[allow(clippy::many_single_char_names)]

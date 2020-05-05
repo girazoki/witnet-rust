@@ -304,6 +304,7 @@ message SuperBlock {
     Hash data_request_root = 1;
     Hash tally_root = 2;
     Hash ars_root = 3;
-    Hash last_superblock = 4;
-    uint64 index = 5;
+    uint32  index = 4;
+    Hash prev_block_hash_id = 5;
+    Hash current_block_hash_id =6;
 }
