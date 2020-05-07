@@ -541,7 +541,7 @@ pub struct BlockMerkleRoots {
     pub tally_hash_merkle_root: Hash,
 }
 
-/// Block merkle tree roots
+/// Superblock structure
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize, ProtobufConvert, Default)]
 #[protobuf_convert(pb = "witnet::SuperBlock")]
 pub struct SuperBlock {
