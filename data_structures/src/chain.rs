@@ -2524,10 +2524,10 @@ pub struct ChainState {
     pub reputation_engine: Option<ReputationEngine>,
     /// Node mining stats
     pub node_stats: NodeStats,
-    /// Last ARS members ordered by reputation
+    /// Alternative public key mapping
     pub alt_keys: AltKeys,
-    /// Last ARS alt keys
-    pub last_ars: AltKeys,
+    /// Last ARS pkhs
+    pub last_ars: Vec<PublicKeyHash>,
     /// Last ARS keys vector ordered by reputation
     pub last_ars_ordered_keys: Vec<Bn256PublicKey>
 }
@@ -2537,7 +2537,7 @@ pub struct ChainState {
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AltKeys {
     /// BN256 curve
-    pub bn256: HashMap<PublicKeyHash, Bn256PublicKey>,
+    bn256: HashMap<PublicKeyHash, Bn256PublicKey>,
 }
 
 impl AltKeys {
@@ -2584,7 +2584,7 @@ impl AltKeys {
 
         ordered_alts
     }
-    
+
 }
 
 impl ChainState {

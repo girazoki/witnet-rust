@@ -18,14 +18,14 @@ pub enum AddSuperBlockVote {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SuperBlockState {
     // Set of ARS identities that will be able to send superblock votes in the next superblock epoch
-    current_ars_identities: Option<AltKeys>,
+    current_ars_identities: Option<HashSet<PublicKeyHash>>,
     // Current superblock hash created by this node
     current_superblock_hash: Option<Hash>,
     // Current superblock index, used to limit the range of broadcasted votes to
     // [index - 1, index + 1]. So if index is 10, only votes with index 9, 10, 11 will be broadcasted
     current_superblock_index: Option<u32>,
     // Set of ARS identities that can currently send superblock votes
-    previous_ars_identities: Option<AltKeys>,
+    previous_ars_identities: Option<HashSet<PublicKeyHash>>,
     // Set of received superblock votes
     // This is cleared when we try to create a new superblock
     received_superblocks: HashSet<SuperBlockVote>,
@@ -83,8 +83,7 @@ impl SuperBlockState {
             Some(x) if x == sbv.superblock_index => self
                 .previous_ars_identities
                 .as_ref()
-                .map(|x| x.bn256.keys().any(|val| val == &sbv.secp256k1_signature.public_key.pkh())),
-            // If the index is not the same as the current one, but it is within an acceptable range
+                .map(|x| x.contains(&sbv.secp256k1_signature.public_key.pkh())),            // If the index is not the same as the current one, but it is within an acceptable range
             // of [x-1, x+1], broadcast the vote without checking if it is a member of the ARS, as
             // the ARS may have changed and we do not keep older copies of the ARS in memory
             Some(x) => {
@@ -105,7 +104,7 @@ impl SuperBlockState {
     pub fn build_superblock(
         &mut self,
         block_headers: &[BlockHeader],
-        sorted_ars_identities: AltKeys,
+        sorted_ars_identities: Vec<PublicKeyHash>,
         ars_ordered_keys: Vec<Bn256PublicKey>,
         superblock_index: u32,
         last_block_in_previous_superblock: Hash,
@@ -139,9 +138,10 @@ impl SuperBlockState {
                         &mut self.previous_ars_identities,
                         &mut self.current_ars_identities,
                     );
-
                     // Reuse allocated memory
-                    self.current_ars_identities = Some(sorted_ars_identities);
+                    let hs = self.current_ars_identities.get_or_insert(HashSet::new());
+                    hs.clear();
+                    hs.extend(sorted_ars_identities.iter().cloned());
                 }
 
                 let mut old_superblock_votes =
