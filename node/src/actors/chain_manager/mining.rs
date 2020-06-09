@@ -38,7 +38,7 @@ use crate::{
 };
 use witnet_data_structures::{
     chain::{
-        AltKeys, Block, BlockHeader, BlockMerkleRoots, BlockTransactions, Bn256PublicKey, CheckpointBeacon,
+        Block, BlockHeader, BlockMerkleRoots, BlockTransactions, Bn256PublicKey, CheckpointBeacon,
         CheckpointVRF, DataRequestOutput, EpochConstants, Hash, Hashable, Input, PublicKeyHash,
         ReputationEngine, SuperBlockVote, TransactionsPool, UnspentOutputsPool,
         ValueTransferOutput,
@@ -147,8 +147,6 @@ impl ChainManager {
                 ctx,
                 current_epoch,
                 superblock_period,
-                ars_members,
-                ars_ordered_keys,
                 genesis_hash,
             );
         }
@@ -580,8 +578,6 @@ impl ChainManager {
         ctx: &mut Context<Self>,
         current_epoch: u32,
         superblock_period: u32,
-        ars_members: Vec<PublicKeyHash>,
-        ars_ordered_keys: Vec<Bn256PublicKey>,
         genesis_hash: Hash,
     ) {
         let superblock_index = current_epoch / superblock_period;
@@ -650,10 +646,12 @@ impl ChainManager {
         })
         .map_err(|e, _, _| log::error!("Superblock forwarding failed: {:?}", e))
         .and_then(move |(block_headers, last_hash), act, _ctx| {
+            let ars_members = &act.chain_state.last_ars;
+            let ars_ordered_keys = &act.chain_state.last_ars_ordered_keys;
             let superblock = act.superblock_state.build_superblock(
                 &block_headers,
-                &ars_members,
-                &ars_ordered_keys,
+                ars_members,
+                ars_ordered_keys,
                 superblock_index,
                 last_hash,
             );

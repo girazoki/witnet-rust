@@ -495,7 +495,6 @@ impl ChainManager {
                     .ars()
                     .active_identities()
                     .cloned()
-                    .sorted()
                     .collect();
                 let alt_keys = &self.chain_state.alt_keys;
 
