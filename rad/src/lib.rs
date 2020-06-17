@@ -12,6 +12,7 @@ use witnet_data_structures::{
 
 use crate::{
     error::RadError,
+    user_agents::UserAgent,
     script::{
         create_radon_script_from_filters_and_reducer, execute_radon_script, unpack_radon_script,
         RadonScriptExecutionSettings,
@@ -19,6 +20,7 @@ use crate::{
     types::{array::RadonArray, string::RadonString, RadonTypes},
 };
 
+pub mod user_agents;
 pub mod error;
 pub mod filters;
 pub mod hash_functions;
@@ -141,6 +143,8 @@ pub async fn run_retrieval_report(
 
     match retrieve.kind {
         RADType::HttpGet => {
+            println!("{}", UserAgent::random());
+            // println!("{:?}", user_agents.0);
             // Validate URL because surf::get panics on invalid URL
             // It could still panic if surf gets updated and changes their URL parsing library
             let _valid_url =
@@ -150,6 +154,7 @@ pub async fn run_retrieval_report(
                 })?;
 
             let mut response = surf::get(&retrieve.url)
+                .set_header("nameh", "gorka")
                 .await
                 .map_err(|x| RadError::HttpOther {
                     message: x.to_string(),
