@@ -619,6 +619,17 @@ impl ChainManager {
             .highest_block_checkpoint
     }
 
+    fn get_superblock_beacon(&self) -> CheckpointBeacon {
+        match self.chain_state
+            .superblock_state.get_beacon(){
+            Some(superblock_beacon) => superblock_beacon,
+            None => CheckpointBeacon{
+                checkpoint: 0,
+                hash_prev_block: self.consensus_constants().genesis_hash,
+            }
+        }
+    }
+
     fn consensus_constants(&self) -> ConsensusConstants {
         self.chain_state
             .chain_info
@@ -974,6 +985,7 @@ impl ChainManager {
             .send(Anycast {
                 command: SendLastBeacon {
                     beacon: self.get_chain_beacon(),
+                    superblock_beacon: self.get_superblock_beacon(),
                 },
                 safu: true,
             })

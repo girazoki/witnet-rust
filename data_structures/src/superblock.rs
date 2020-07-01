@@ -1,6 +1,4 @@
-use crate::chain::{
-    BlockHeader, Bn256PublicKey, Hash, Hashable, PublicKeyHash, SuperBlock, SuperBlockVote,
-};
+use crate::chain::{BlockHeader, Bn256PublicKey, Hash, Hashable, PublicKeyHash, SuperBlock, SuperBlockVote, CheckpointBeacon};
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
@@ -180,6 +178,22 @@ impl SuperBlockState {
 
                 Some(superblock)
             }
+        }
+    }
+
+    /// Produces a `SuperBlock` that includes the blocks in `block_headers` if there is at least one of them.
+    /// `ars_pkh_keys` will be used to validate all the superblock votes received for the
+    /// next superblock. The votes for the current superblock must be validated using
+    /// `previous_ars_identities`. The ordered bn256 keys will be merkelized and appended to the superblock
+    pub fn get_beacon(
+        &self,
+    ) -> Option<CheckpointBeacon> {
+        match ( self.current_superblock_index.is_some(), self.current_superblock_hash.is_some())  {
+            (true, true) => Some(CheckpointBeacon{
+                checkpoint: self.current_superblock_index?,
+                hash_prev_block: self.current_superblock_hash?,
+            }),
+            _ => None
         }
     }
 }

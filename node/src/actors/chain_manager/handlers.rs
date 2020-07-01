@@ -124,6 +124,7 @@ impl Handler<EpochNotification<EveryEpochPayload>> for ChainManager {
                     SessionsManager::from_registry().do_send(Broadcast {
                         command: SendLastBeacon {
                             beacon: chain_info.highest_block_checkpoint,
+                            superblock_beacon: self.get_superblock_beacon(),
                         },
                         only_inbound: true,
                     });
@@ -266,6 +267,7 @@ impl Handler<EpochNotification<EveryEpochPayload>> for ChainManager {
                                     .as_ref()
                                     .unwrap()
                                     .highest_block_checkpoint,
+                                superblock_beacon: self.get_superblock_beacon(),
                             },
                             only_inbound: true,
                         });
