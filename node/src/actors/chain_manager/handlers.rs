@@ -1075,6 +1075,7 @@ impl Handler<PeersBeacons> for ChainManager {
                             log::debug!("Moving from AlmostSynced to Synced state");
                             log::info!("{}", SYNCED_BANNER);
                             self.sm_state = StateMachine::Synced;
+                            self.add_temp_superblock_votes(ctx).unwrap();
                         }
                         Ok(peers_to_unregister)
                     }
