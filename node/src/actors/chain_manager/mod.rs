@@ -729,7 +729,7 @@ impl ChainManager {
 
                             false
                         }
-                        AddSuperBlockVote::NotInArs => {
+                        AddSuperBlockVote::NotInSigningCommittee => {
                             log::debug!(
                                 "Not forwarding superblock vote: identity not in ARS: {}",
                                 superblock_vote.secp256k1_signature.public_key.pkh()
@@ -1043,6 +1043,7 @@ impl ChainManager {
         })
         .map_err(|e, _, _| log::error!("Superblock building failed: {:?}", e))
         .and_then(move |(block_headers, last_hash), act, ctx| {
+            // TODO: Synced or AlmostSynced?
             let consensus = if act.sm_state == StateMachine::Synced {
                 act.chain_state.superblock_state.has_consensus()
             } else {
@@ -1221,6 +1222,44 @@ impl ChainManager {
             .spawn(ctx);
         let epoch = self.current_epoch.unwrap();
         self.sync_waiting_for_add_blocks_since = Some(epoch);
+    }
+
+    fn process_blocks_batch(
+        &mut self,
+        ctx: &mut Context<Self>,
+        sync_target: &SyncTarget,
+        blocks: &[Block],
+    ) -> (bool, usize) {
+        let consensus_constants = self.consensus_constants();
+        let mut batch_succeeded = true;
+        let mut num_processed_blocks = 0;
+
+        for block in blocks.iter() {
+            num_processed_blocks += 1;
+            let block_epoch = block.block_header.beacon.checkpoint;
+
+            // Do not update reputation when consolidating genesis block
+            if block.hash() != consensus_constants.genesis_hash {
+                if let Some(ref mut rep_engine) = self.chain_state.reputation_engine {
+                    if let Err(e) = rep_engine.ars_mut().update_empty(block_epoch) {
+                        log::error!("Error updating reputation before processing block: {}", e);
+                    }
+                }
+            }
+
+            if let Err(e) = self.process_requested_block(ctx, block.clone()) {
+                log::error!("Error processing block: {}", e);
+                self.initialize_from_storage(ctx);
+                log::info!("Restored chain state from storage");
+                batch_succeeded = false;
+                break;
+            }
+
+            let beacon = self.get_chain_beacon();
+            show_sync_progress(beacon, &sync_target, self.epoch_constants.unwrap());
+        }
+
+        (batch_succeeded, num_processed_blocks)
     }
 }
 
