@@ -253,6 +253,19 @@ impl ChainManager {
     }
     /// Method to persist the chain_state into storage
     fn persist_chain_state(&mut self, ctx: &mut Context<Self>) {
+        // When persisting the chain state, we need to update the highest superblock checkpoint.
+        // This is the highest superblock that obtained a majority of votes and we do not want to
+        // lose it when restoring the state.
+        self.last_chain_state
+            .chain_info
+            .as_mut()
+            .unwrap()
+            .highest_superblock_checkpoint = self
+            .chain_state
+            .chain_info
+            .as_ref()
+            .unwrap()
+            .highest_superblock_checkpoint;
         self.persist_last_chain_state(ctx);
         // TODO: Evaluate another way to avoid clone
         self.last_chain_state = self.chain_state.clone();
@@ -983,6 +996,9 @@ impl ChainManager {
             match consensus {
                 SuperBlockConsensus::SameAsLocal => {
                     // Consensus: persist chain state
+                    log::info!("Before update: superblock {:?}", act.get_superblock_beacon());
+                    act.chain_state.chain_info.as_mut().unwrap().highest_superblock_checkpoint =
+                        act.chain_state.superblock_state.get_beacon();
                     act.persist_chain_state(ctx);
                     log::info!("Consensus! Superblock {:?}", act.get_superblock_beacon());
                     log::info!("Current tip of the chain: {:?}", act.get_chain_beacon());
@@ -1568,7 +1584,10 @@ fn show_sync_progress(
     //let target_checkpoint = sync_target.block.map(|block| block.checkpoint).unwrap_or(sync_target.superblock.checkpoint * superblock_period);
     if sync_target.block.is_none() {
         // TODO: how to show progress?
-        log::info!("Syncronization progress: ?/?, to superblock {:?}", sync_target.superblock);
+        log::info!(
+            "Syncronization progress: ?/?, to superblock {:?}",
+            sync_target.superblock
+        );
         return;
     }
     let target_checkpoint = sync_target.block.map(|block| block.checkpoint).unwrap();
