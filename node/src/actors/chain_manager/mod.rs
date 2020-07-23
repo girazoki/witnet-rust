@@ -995,6 +995,7 @@ impl ChainManager {
             };
             match consensus {
                 SuperBlockConsensus::SameAsLocal => {
+
                     // Consensus: persist chain state
                     log::info!("Before update: superblock {:?}", act.get_superblock_beacon());
                     act.chain_state.chain_info.as_mut().unwrap().highest_superblock_checkpoint =
@@ -1006,7 +1007,19 @@ impl ChainManager {
                         "The last block of the consolidated superblock is {}",
                         last_hash
                     );
+                    act.chain_state.chain_info.as_mut().unwrap().highest_superblock_checkpoint =
+                        act.chain_state.superblock_state.get_beacon();
+                    act.last_chain_state.chain_info.as_mut().unwrap().highest_superblock_checkpoint =
+                        act.chain_state.superblock_state.get_beacon();
+                    act.last_chain_state.superblock_state  =
+                        act.chain_state.superblock_state.clone();
+
+                    log::info!("Consensus2! Superblock {:?}", act.get_superblock_beacon());
+
+                    act.persist_chain_state(ctx);
+
                     let chain_info = act.chain_state.chain_info.as_ref().unwrap();
+
                     let ars_members = {
                         // Before reaching the epoch activity_period + collateral_age the bootstrap committee signs the superblock
                         // collateral_age is measured in blocks instead of epochs, but this only means that the period in which
