@@ -76,6 +76,7 @@ use crate::{
     },
     signature_mngr, storage_mngr,
 };
+use std::cmp::max;
 
 mod actor;
 mod handlers;
@@ -984,13 +985,25 @@ impl ChainManager {
             };
 
             let ars_ordered_keys = &act.chain_state.last_ars_ordered_keys;
+            // Committee size should decrease if sufficient epochs have elapsed since last confirmed superblock
+            // Committee_size = expected_size - ((current_index-last_consolidated_index)/decrease_period))
+            let committee_size = max(
+                consensus_constants
+                    .superblock_signing_committee_size
+                    .saturating_sub(
+                        superblock_index
+                            .saturating_sub(chain_info.highest_superblock_checkpoint.checkpoint)
+                            / consensus_constants.superblock_agreement_decreasing_period,
+                    ),
+                1,
+            );
 
             let superblock = act.chain_state.superblock_state.build_superblock(
                 &block_headers,
                 &ars_members,
                 &act.chain_state.last_ars,
                 ars_ordered_keys,
-                consensus_constants.superblock_signing_committee_size,
+                committee_size,
                 superblock_index,
                 last_hash,
             );
