@@ -427,7 +427,12 @@ impl Handler<AddBlocks> for ChainManager {
                             }
                         }
                     } else {
-                        panic!("How to update reputation if we do not know the last block?");
+                        log::debug!("Updating reputation for empty blocks between {} and {}", "<unknown>", epoch_during_which_we_should_construct_the_target_superblock);
+                        let rep_engine = self.chain_state.reputation_engine.as_mut().unwrap();
+
+                        if let Err(e) = rep_engine.ars_mut().update_empty(epoch_during_which_we_should_construct_the_target_superblock) {
+                            log::error!("Error updating reputation before processing block: {}", e);
+                        }
                     }
                     // We need to persist blocks in order to be able to construct the
                     // superblock
@@ -455,9 +460,7 @@ impl Handler<AddBlocks> for ChainManager {
 
                                 actix::fut::ok(())
                             } else {
-                                // The superblock hash is different from what it
-                                // should be.
-                                // This probably means a bug in the code, so panic
+                                // The superblock hash is different from what it should be.
                                 log::error!("Mismatching superblock. Target: {:?} Created #{} {} {:?}", sync_target, superblock.index, superblock.hash(), superblock);
                                 act.sm_state = StateMachine::WaitingConsensus;
 
@@ -503,7 +506,12 @@ impl Handler<AddBlocks> for ChainManager {
                                 }
                             }
                         } else {
-                            panic!("How to update reputation if we do not know the last block?");
+                            log::debug!("Updating reputation for empty blocks between {} and {}", "<unknown>", epoch_during_which_we_should_construct_the_second_superblock);
+                            let rep_engine = act.chain_state.reputation_engine.as_mut().unwrap();
+
+                            if let Err(e) = rep_engine.ars_mut().update_empty(epoch_during_which_we_should_construct_the_second_superblock) {
+                                log::error!("Error updating reputation before processing block: {}", e);
+                            }
                         }
                         // We need to persist blocks in order to be able to construct the
                         // superblock
