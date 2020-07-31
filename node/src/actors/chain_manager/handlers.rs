@@ -347,7 +347,7 @@ impl Handler<AddBlocks> for ChainManager {
                 */
 
                 let (blocks1, blocks2, blocks3, blocks4) =
-                    split_blocks_batch_at_target(msg.blocks, &sync_target, superblock_period);
+                    split_blocks_batch_at_target(msg.blocks, self.current_epoch.unwrap(), &sync_target, superblock_period);
 
                 // * Process blocks1
                 // * If target not reached, done
@@ -410,10 +410,12 @@ impl Handler<AddBlocks> for ChainManager {
                 let current_superblock_checkpoint =
                     self.chain_state.superblock_state.get_beacon().checkpoint;
                 let need_to_construct_superblock =
-                    sync_target.superblock.checkpoint != current_superblock_checkpoint;
+                    sync_target.superblock.checkpoint > current_superblock_checkpoint;
                 let epoch_during_which_we_should_construct_the_target_superblock =
                     sync_target.superblock.checkpoint * superblock_period;
 
+
+                log::error!("sync target {}  current_superblock_checkpoint {} and boool {}", sync_target.superblock.checkpoint, current_superblock_checkpoint, need_to_construct_superblock);
                 // We need to construct the target superblock in order to be able to
                 // validate the next superblocks
                 if need_to_construct_superblock {
@@ -533,42 +535,44 @@ impl Handler<AddBlocks> for ChainManager {
                         // We must construct the second superblock in order to
                         // be able to validate the votes for this superblock
                         // later
-                        log::debug!("Will construct the second superblock during synchronization. Superblock index: {} Epoch {}", sync_target.superblock.checkpoint + 1, epoch_during_which_we_should_construct_the_second_superblock);
-                        act.construct_superblock(ctx, epoch_during_which_we_should_construct_the_second_superblock).and_then(move |_superblock, act, ctx| {
-                            // Ignore the created superblock: do not
-                            // broadcast votes
-                            // Process remaining blocks
-                            let (batch_succeeded, num_processed_blocks) = act.process_blocks_batch(ctx, &sync_target, &blocks3);
+                        log::debug!("Superblock index: {}", sync_target.superblock.checkpoint);
 
-                            if !batch_succeeded {
-                                log::error!("3 Received invalid blocks batch");
+                        log::debug!("Will construct the second superblock during synchronization. Superblock index: {} Epoch {}", sync_target.superblock.checkpoint + 1, epoch_during_which_we_should_construct_the_second_superblock);
+                            act.construct_superblock(ctx, epoch_during_which_we_should_construct_the_second_superblock).and_then(move |_superblock, act, ctx| {
+                                // Ignore the created superblock: do not
+                                // broadcast votes
+                                // Process remaining blocks
+                                let (batch_succeeded, num_processed_blocks) = act.process_blocks_batch(ctx, &sync_target, &blocks3);
+
+                                if !batch_succeeded {
+                                    log::error!("3 Received invalid blocks batch");
+                                    act.sm_state = StateMachine::WaitingConsensus;
+
+                                    // If we are not synchronizing, forget about when we started synchronizing
+                                    if act.sm_state != StateMachine::Synchronizing {
+                                        act.sync_waiting_for_add_blocks_since = None;
+                                    }
+                                    return actix::fut::err(());
+                                }
+
+                                if num_processed_blocks == 0 {
+                                    log::debug!("3 Sync done, 0 blocks processed");
+                                } else {
+                                    let last_processed_block = &blocks3[num_processed_blocks - 1];
+                                    let epoch_of_the_last_block = Some(last_processed_block.block_header.beacon.checkpoint);
+                                    log::debug!("3 Sync done up to block #{}", epoch_of_the_last_block.unwrap());
+                                }
+
+                                log::info!("Block sync target achieved, go to WaitingConsensus state");
+                                // Target achived, go back to state 1
                                 act.sm_state = StateMachine::WaitingConsensus;
 
-                                // If we are not synchronizing, forget about when we started synchronizing
-                                if act.sm_state != StateMachine::Synchronizing {
-                                    act.sync_waiting_for_add_blocks_since = None;
+                                if blocks4.is_some() {
+                                    log::error!("This sync batch will not work because this node is one superblock behind, retry");
                                 }
-                                return actix::fut::err(());
-                            }
 
-                            if num_processed_blocks == 0 {
-                                log::debug!("3 Sync done, 0 blocks processed");
-                            } else {
-                                let last_processed_block = &blocks3[num_processed_blocks - 1];
-                                let epoch_of_the_last_block = Some(last_processed_block.block_header.beacon.checkpoint);
-                                log::debug!("3 Sync done up to block #{}", epoch_of_the_last_block.unwrap());
-                            }
-
-                            log::info!("Block sync target achieved, go to WaitingConsensus state");
-                            // Target achived, go back to state 1
-                            act.sm_state = StateMachine::WaitingConsensus;
-
-                            if blocks4.is_some() {
-                                log::error!("This sync batch will not work because this node is one superblock behind, retry");
-                            }
-
-                            actix::fut::ok(())
-                        }).wait(ctx);
+                                actix::fut::ok(())
+                            }).wait(ctx);
 
                         actix::fut::ok(())
                     })
@@ -592,11 +596,13 @@ impl Handler<AddBlocks> for ChainManager {
 ///
 /// Assumes that the blocks are sorted by checkpoint, and no two blocks have the
 /// same checkpoint, and superblock_period is at least 1.
+/// Assumes that first round of votation will occur at epoch superblock_period
 // TODO: return slices instead of vectors?
 // TODO: refactor this, use a function that splits into 2 parts
 #[allow(clippy::type_complexity)]
 fn split_blocks_batch_at_target(
     blocks: Vec<Block>,
+    epoch: u32,
     sync_target: &SyncTarget,
     superblock_period: u32,
 ) -> (
@@ -606,8 +612,41 @@ fn split_blocks_batch_at_target(
     Option<Vec<Block>>,
 ) {
     let first_epoch_part_2 = sync_target.superblock.checkpoint * superblock_period;
+    // 40: 0-399    41 y 42 se han ido a la puta
+
+    // 10 epochs despues -> 43 construir el superbloque 43 (420-429)
+    // 10 epochs despues -> 44 construiremos el superbloque 44 (430-439) - > si todo bien , el 43 se consolida
+    //                                                         - > si no va bien, vuelta al 40
+    // 10 epochs despues -> 45 construir el superbloque 45 (440-449)
+    // 10 epochs despues -> 46 construiremos el superbloque 46 - > si todo bien , el 45 se consolida
+    //                                                         - > si no va bien, vuelta al 40
+
+    // if (epoch/superblock_period + 1) - sync.target.superblock.checkpoint is odd)
+    // Everything goes well
+    // Superblock                     index || Block epoch
+    // Last consolidated                40        399
+    // Epoch/superblock_period          41  ||   410-419
+    // Outcome                  I HAVE TO CONSTRUCT SECOND SUPERBLOCK
+
+    // Everything goes bad 1
+    // Superblock                     index || Block epoch
+    // Last consolidated                40        399
+    // I revert at                      42        420
+    // Epoch actual                               425
+    // Epoch/superblock_period          42
+    // Outcome                  I HAVE TO CONSTRUCT SECOND SUPERBLOCK
+
+    // Everything goes bad 2
+    // Superblock                     index || Block epoch
+    // Last consolidated                40        399
+    // I revert at                      42        420
+    // Epoch actual                               435
+    // Epoch/superblock_period          43  ||   430-439
+                                    // (420-429)
+    // Outcome                  I do not HAVE TO CONSTRUCT SECOND SUPERBLOCK
+
     let first_epoch_part_3 = (sync_target.superblock.checkpoint + 1) * superblock_period;
-    let first_epoch_part_4 = (sync_target.superblock.checkpoint + 2) * superblock_period;
+    let first_epoch_part_4 = ((epoch-1)/superblock_period +1)*superblock_period;
     log::debug!(
         "Splitting blocks batch at epochs. part_2 >= {}, part_3 >= {}",
         first_epoch_part_2,
@@ -697,6 +736,8 @@ fn split_blocks_batch_at_target(
     {
         part_4 = Some(vec![]);
     }
+    // Edge case: if the first block of the batch is the block 0, target superblock is 0 and
+    // epoch is >= 2*superblock_period, block 0 should be in part 2
 
     (part_1, part_2, part_3, part_4)
 }
@@ -1853,27 +1894,27 @@ mod tests {
         let superblock_period = 10;
 
         assert_eq!(
-            split_blocks_batch_at_target(vec![], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![], 1, &sync_target, superblock_period),
             (vec![], None, None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0)], 1, &sync_target, superblock_period),
             (vec![], Some(vec![b(0)]), None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(8)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(8)], 9, &sync_target, superblock_period),
             (vec![], Some(vec![b(0), b(8)]), None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(9)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(9)], 10, &sync_target, superblock_period),
             (vec![], Some(vec![b(0), b(9)]), Some(vec![]), None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(10)], 11, &sync_target, superblock_period),
             (vec![], Some(vec![b(0)]), Some(vec![b(10)]), None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10), b(19)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(10), b(19)], 20, &sync_target, superblock_period),
             (
                 vec![],
                 Some(vec![b(0)]),
@@ -1882,7 +1923,7 @@ mod tests {
             )
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10), b(20)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(10), b(20)], 21, &sync_target, superblock_period),
             (
                 vec![],
                 Some(vec![b(0)]),
@@ -1893,28 +1934,29 @@ mod tests {
 
         sync_target.superblock.checkpoint = 1;
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0)], 1, &sync_target, superblock_period),
             (vec![b(0)], None, None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(8)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(8)], 9, &sync_target, superblock_period),
             (vec![b(0), b(8)], None, None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(9)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(9)], 10, &sync_target, superblock_period),
             (vec![b(0), b(9)], Some(vec![]), None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(10)], 11, &sync_target, superblock_period),
             (vec![b(0)], Some(vec![b(10)]), None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(8), b(11)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(8), b(11)], 12, &sync_target, superblock_period),
             (vec![b(0), b(8)], Some(vec![b(11)]), None, None)
         );
         assert_eq!(
             split_blocks_batch_at_target(
                 vec![b(0), b(9), b(10), b(18)],
+                19,
                 &sync_target,
                 superblock_period
             ),
@@ -1923,6 +1965,7 @@ mod tests {
         assert_eq!(
             split_blocks_batch_at_target(
                 vec![b(0), b(9), b(10), b(19)],
+                20,
                 &sync_target,
                 superblock_period
             ),
@@ -1934,12 +1977,13 @@ mod tests {
             ),
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10), b(20)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(0), b(10), b(20)], 21, &sync_target, superblock_period),
             (vec![b(0)], Some(vec![b(10)]), Some(vec![b(20)]), None),
         );
         assert_eq!(
             split_blocks_batch_at_target(
                 vec![b(0), b(9), b(10), b(19), b(20), b(21)],
+                22,
                 &sync_target,
                 superblock_period
             ),
@@ -1951,9 +1995,54 @@ mod tests {
             ),
         );
 
+        assert_eq!(
+            split_blocks_batch_at_target(
+                vec![b(0), b(9), b(30), b(39), b(40), b(41)],
+                42,
+                &sync_target,
+                superblock_period
+            ),
+            (
+                vec![b(0), b(9)],
+                Some(vec![b(30), b(39)]),
+                Some(vec![b(40), b(41)]),
+                None
+            ),
+        );
+
+        assert_eq!(
+            split_blocks_batch_at_target(
+                vec![b(0), b(9), b(30), b(31)],
+                32,
+                &sync_target,
+                superblock_period
+            ),
+            (
+                vec![b(0), b(9)],
+                None,
+                Some(vec![b(30), b(31)]),
+                None
+            ),
+        );
+
+        assert_eq!(
+            split_blocks_batch_at_target(
+                vec![b(0), b(9), b(40), b(41)],
+                42,
+                &sync_target,
+                superblock_period
+            ),
+            (
+                vec![b(0), b(9)],
+                Some(vec![]),
+                Some(vec![b(40), b(41)]),
+                None
+            ),
+        );
+
         sync_target.superblock.checkpoint = 2;
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(100)], &sync_target, superblock_period),
+            split_blocks_batch_at_target(vec![b(100)], 101, &sync_target, superblock_period),
             (vec![], Some(vec![]), Some(vec![]), Some(vec![b(100)]))
         );
     }

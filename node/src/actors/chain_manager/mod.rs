@@ -979,6 +979,7 @@ impl ChainManager {
         let superblock_period = u32::from(consensus_constants.superblock_period);
 
         let superblock_index = block_epoch / superblock_period;
+
         if superblock_index == 0 {
             panic!(
                 "Superblock 0 should not be created! Block epoch: {}",
