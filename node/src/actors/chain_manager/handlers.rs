@@ -617,9 +617,21 @@ fn split_blocks_batch_at_target(
     Option<Vec<Block>>,
     Option<u32>,
 ) {
-    let first_epoch_part_2 = sync_target.superblock.checkpoint * superblock_period;
-    let first_epoch_part_3 = (sync_target.superblock.checkpoint + 1) * superblock_period;
-    let first_epoch_part_4 = (sync_target.superblock.checkpoint + 2) * superblock_period;
+
+    assert!(epoch/superblock_period >= sync_target.superblock.checkpoint, "Provided a sync target that is in the future");
+    let (first_epoch_part_2, first_epoch_part_3, first_epoch_part_4, next_index) =
+        if (epoch/superblock_period - sync_target.superblock.checkpoint) % 2 == 1 {
+            (sync_target.superblock.checkpoint * superblock_period,
+            (epoch/superblock_period)  * superblock_period,
+            (epoch/superblock_period +1)  * superblock_period,
+            Some(epoch/superblock_period))
+        }
+        else {
+            (sync_target.superblock.checkpoint * superblock_period,
+             (epoch / superblock_period +1) * superblock_period,
+             (epoch / superblock_period + 2) * superblock_period,
+            None)
+        };
     log::debug!(
         "Splitting blocks batch at epochs. part_2 >= {}, part_3 >= {}",
         first_epoch_part_2,
@@ -710,11 +722,11 @@ fn split_blocks_batch_at_target(
         part_4 = Some(vec![]);
     }
 
-    let next_index = if epoch / superblock_period == sync_target.superblock.checkpoint {
+   /* let next_index = if epoch / superblock_period == sync_target.superblock.checkpoint {
         None
     } else {
         Some(epoch / superblock_period)
-    };
+    };*/
 
     (part_1, part_2, part_3, part_4, next_index)
 }
@@ -1871,76 +1883,59 @@ mod tests {
         let superblock_period = 10;
 
         assert_eq!(
-            split_blocks_batch_at_target(vec![], &sync_target, superblock_period),
-            (vec![], None, None, None)
+            split_blocks_batch_at_target(vec![], 1, &sync_target, superblock_period),
+            (vec![], None, None, None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0)], &sync_target, superblock_period),
-            (vec![], Some(vec![b(0)]), None, None)
+            split_blocks_batch_at_target(vec![b(0)], 1, &sync_target, superblock_period),
+            (vec![], Some(vec![b(0)]), None, None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(8)], &sync_target, superblock_period),
-            (vec![], Some(vec![b(0), b(8)]), None, None)
+            split_blocks_batch_at_target(vec![b(0), b(8)], 9, &sync_target, superblock_period),
+            (vec![], Some(vec![b(0), b(8)]), None, None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(9)], &sync_target, superblock_period),
-            (vec![], Some(vec![b(0), b(9)]), Some(vec![]), None)
+            split_blocks_batch_at_target(vec![b(0), b(9)], 11, &sync_target, superblock_period),
+            (vec![], Some(vec![b(0), b(9)]), Some(vec![]), None, Some(1))
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10)], &sync_target, superblock_period),
-            (vec![], Some(vec![b(0)]), Some(vec![b(10)]), None)
+            split_blocks_batch_at_target(vec![b(0), b(10)], 11, &sync_target, superblock_period),
+            (vec![], Some(vec![b(0)]), Some(vec![b(10)]), None, Some(1))
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10), b(19)], &sync_target, superblock_period),
-            (
-                vec![],
-                Some(vec![b(0)]),
-                Some(vec![b(10), b(19)]),
-                Some(vec![])
-            )
+            split_blocks_batch_at_target(vec![b(0)], 1, &sync_target, superblock_period),
+            (vec![], None, Some(vec![b(0)]), None, None)
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10), b(20)], &sync_target, superblock_period),
-            (
-                vec![],
-                Some(vec![b(0)]),
-                Some(vec![b(10)]),
-                Some(vec![b(20)])
-            )
+            split_blocks_batch_at_target(vec![b(0), b(8)], 9, &sync_target, superblock_period),
+            (vec![b(0), b(8)], None, None, None, None)
         );
-
         sync_target.superblock.checkpoint = 1;
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0)], &sync_target, superblock_period),
-            (vec![b(0)], None, None, None)
+            split_blocks_batch_at_target(vec![b(0), b(9)], 11, &sync_target, superblock_period),
+            (vec![b(0), b(9)], Some(vec![]), None, None, Some(1))
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(8)], &sync_target, superblock_period),
-            (vec![b(0), b(8)], None, None, None)
+            split_blocks_batch_at_target(vec![b(0), b(10)], 11, &sync_target, superblock_period),
+            (vec![b(0)], Some(vec![b(10)]), None, None, Some(1))
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(9)], &sync_target, superblock_period),
-            (vec![b(0), b(9)], Some(vec![]), None, None)
-        );
-        assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10)], &sync_target, superblock_period),
-            (vec![b(0)], Some(vec![b(10)]), None, None)
-        );
-        assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(8), b(11)], &sync_target, superblock_period),
-            (vec![b(0), b(8)], Some(vec![b(11)]), None, None)
+            split_blocks_batch_at_target(vec![b(0), b(8), b(11)], 12, &sync_target, superblock_period),
+            (vec![b(0), b(8)], Some(vec![b(11)]), None, None, Some(1))
         );
         assert_eq!(
             split_blocks_batch_at_target(
                 vec![b(0), b(9), b(10), b(18)],
+                19,
                 &sync_target,
                 superblock_period
             ),
-            (vec![b(0), b(9)], Some(vec![b(10), b(18)]), None, None)
+            (vec![b(0), b(9)], Some(vec![b(10), b(18)]), None, None, Some(1))
         );
         assert_eq!(
             split_blocks_batch_at_target(
                 vec![b(0), b(9), b(10), b(19)],
+                21,
                 &sync_target,
                 superblock_period
             ),
@@ -1948,16 +1943,18 @@ mod tests {
                 vec![b(0), b(9)],
                 Some(vec![b(10), b(19)]),
                 Some(vec![]),
-                None
+                None,
+                Some(2)
             ),
         );
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(0), b(10), b(20)], &sync_target, superblock_period),
-            (vec![b(0)], Some(vec![b(10)]), Some(vec![b(20)]), None),
+            split_blocks_batch_at_target(vec![b(0), b(10), b(20)], 21,&sync_target, superblock_period),
+            (vec![b(0)], Some(vec![b(10)]), Some(vec![b(20)]), None, Some(2)),
         );
         assert_eq!(
             split_blocks_batch_at_target(
                 vec![b(0), b(9), b(10), b(19), b(20), b(21)],
+                22,
                 &sync_target,
                 superblock_period
             ),
@@ -1965,14 +1962,15 @@ mod tests {
                 vec![b(0), b(9)],
                 Some(vec![b(10), b(19)]),
                 Some(vec![b(20), b(21)]),
-                None
+                None,
+                Some(2)
             ),
         );
 
         sync_target.superblock.checkpoint = 2;
         assert_eq!(
-            split_blocks_batch_at_target(vec![b(100)], &sync_target, superblock_period),
-            (vec![], Some(vec![]), Some(vec![]), Some(vec![b(100)]))
+            split_blocks_batch_at_target(vec![b(100)], 101, &sync_target, superblock_period),
+            (vec![], Some(vec![]), Some(vec![]), Some(vec![b(100)]), Some(10))
         );
     }
 }
