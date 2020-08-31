@@ -1,13 +1,13 @@
 # Address of the witnet node JSON-RPC server
-witnet_jsonrpc_addr = "127.0.0.1:1234"
+witnet_jsonrpc_addr = "127.0.0.1:21338"
 # Url of the ethereum client
-eth_client_url = "http://127.0.0.1:8545"
+eth_client_url = "http://127.0.0.1:8888"
 # Address of the WitnetRequestsBoard deployed contract
-wrb_contract_addr = "0x49824bd89338C26Ea204F20AcbAd404CFeAB3301"
+wrb_contract_addr = "0x00510fE34ffD70fC77B43b237f9f1a68704b032F"
 # Address of the BlockRelay deployed contract
-block_relay_contract_addr = "0x1D774D4D7EC51B111EFE48EB5D53022C3e9CC4Af"
+block_relay_contract_addr = "0xE3C40e623e6336DA76d1550CD3ed8ECD88484495"
 # Ethereum account used to create the transactions
-eth_account = "0x20E56DAc7582782584c46061F382812D502Dd139"
+eth_account = "0xA810B3799a9851228Dd5D222D8A959BA7746d2a2"
 # Enable block relay from witnet to ethereum, relay only new blocks
 # (blocks that were recently consolidated)
 enable_block_relay_new_blocks = true
@@ -43,8 +43,8 @@ read_dr_hash_interval_ms = 10_000
 # Gas limits for some methods.
 # To let the client estimate, comment out the fields
 [gas_limits]
-claim_data_requests = 500000
-post_data_request = 1000000
-post_new_block = 200000
-report_data_request_inclusion = 200000
-report_result = 200000
+claim_data_requests = 5000000
+post_data_request = 10000000
+post_new_block = 2000000
+report_data_request_inclusion = 2000000
+report_result = 2000000
