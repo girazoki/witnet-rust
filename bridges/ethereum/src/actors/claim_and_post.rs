@@ -19,6 +19,7 @@ use witnet_data_structures::{
     proto::ProtobufConvert,
 };
 use witnet_validations::validations::validate_rad_request;
+use witnet_data_structures::chain::KeyedSignature;
 
 fn convert_json_array_to_eth_bytes(value: Value) -> Result<Bytes, serde_json::Error> {
     // Convert json values such as [1, 2, 3] into bytes
@@ -167,10 +168,34 @@ fn try_to_claim_local_query(
             witnet_client3
                 .execute("sign", hash.to_vec().into())
                 .map_err(|e| log::error!("sign: {:?}", e))
-                .map(|sign_addr| {
+                .and_then(|sign_addr| {
                     log::trace!("sign: {:?}", sign_addr);
-
-                    (vrf, sign_addr, dr_output, last_beacon)
+                    let fut = match  serde_json::from_value(sign_addr) {
+                        Ok(signature) =>  {
+                            let signature: KeyedSignature = signature;
+                            match signature.signature.to_bytes() {
+                                Ok(sig) =>  {
+                                    let sig: &[u8] = &sig;
+                                    match serde_json::to_value(&sig) {
+                                        Ok(sig) => Ok((vrf, sig, dr_output, last_beacon)),
+                                        Err(e) => {
+                                            log::error!("Error while converting signature to json value {:?}", e);
+                                            Err(())
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    log::error!("Error while retrieving signature bytes {:?}", e);
+                                    Err(())
+                                },
+                            }
+                        },
+                        Err(e) => {
+                            log::error!("Error while retrieving signature from json value {:?}", e);
+                            Err(())
+                        }
+                    };
+                    futures::future::result(fut)
                 })
         })
         .and_then(move |(vrf, sign_addr, dr_output, last_beacon)| {
