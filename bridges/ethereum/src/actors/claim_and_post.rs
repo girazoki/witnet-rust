@@ -14,12 +14,12 @@ use std::{
 use tokio::{sync::mpsc, timer::Interval};
 use web3::{contract, futures::Future, types::U256};
 use witnet_crypto::hash::{calculate_sha256, Sha256};
+use witnet_data_structures::chain::KeyedSignature;
 use witnet_data_structures::{
     chain::{DataRequestOutput, Hashable},
     proto::ProtobufConvert,
 };
 use witnet_validations::validations::validate_rad_request;
-use witnet_data_structures::chain::KeyedSignature;
 
 fn convert_json_array_to_eth_bytes(value: Value) -> Result<Bytes, serde_json::Error> {
     // Convert json values such as [1, 2, 3] into bytes
@@ -170,30 +170,30 @@ fn try_to_claim_local_query(
                 .map_err(|e| log::error!("sign: {:?}", e))
                 .and_then(|sign_addr| {
                     log::trace!("sign: {:?}", sign_addr);
-                    let fut = match  serde_json::from_value(sign_addr) {
-                        Ok(signature) =>  {
-                            let signature: KeyedSignature = signature;
-                            match signature.signature.to_bytes() {
-                                Ok(sig) =>  {
-                                    let sig: &[u8] = &sig;
-                                    match serde_json::to_value(&sig) {
-                                        Ok(sig) => Ok((vrf, sig, dr_output, last_beacon)),
-                                        Err(e) => {
-                                            log::error!("Error while converting signature to json value {:?}", e);
+                    let fut = {
+                        serde_json::from_value(sign_addr).map_or_else(
+                            |e|{
+                                log::error!("Error while retrieving signature from json value {:?}", e);
+                                Err(())
+                            },
+                                |signature| {
+                                    let signature: KeyedSignature = signature;
+                                    signature.signature.to_bytes().map_or_else(
+                                        |e|{
+                                            log::error!("Error while retrieving signature bytes {:?}", e);
                                             Err(())
+                                        },
+                                        |sig| {
+                                            let sig: &[u8] = &sig;
+                                            serde_json::to_value(&sig).map_or_else(|e|{
+                                                                                       log::error!("Error while converting signature to json value {:?}", e);
+                                                                                       Err(())
+                                            },
+                                            |sig| Ok((vrf, sig, dr_output, last_beacon)))
                                         }
-                                    }
-                                },
-                                Err(e) => {
-                                    log::error!("Error while retrieving signature bytes {:?}", e);
-                                    Err(())
-                                },
-                            }
-                        },
-                        Err(e) => {
-                            log::error!("Error while retrieving signature from json value {:?}", e);
-                            Err(())
-                        }
+                                    )
+                                }
+                        )
                     };
                     futures::future::result(fut)
                 })
