@@ -570,13 +570,10 @@ impl Worker {
         let limit = i64::from(self.params.node_sync_batch_size);
         let superblock_period = u32::from(wallet.get_superblock_period());
 
-        // Clear wallet pending state before sync (e.g. locked wallet)
-        wallet.clear_pending_state()?;
+        let wallet_data = wallet.public_data()?;
 
         // Generate transient addresses for sync purposes
-        wallet.generate_transient_addresses();
-
-        let wallet_data = wallet.public_data()?;
+        wallet.generate_transient_addresses(5, 5)?;
 
         let first_beacon = wallet_data.last_confirmed;
         let mut since_beacon = first_beacon;
@@ -678,6 +675,9 @@ impl Worker {
             // Keep asking for new batches of blocks until we get less than expected, which signals
             // that there are no more blocks to process.
             if batch_size < i128::from(limit) {
+                log::error!(
+                    "[SU] --- batch size !!!!!"
+                );
                 break;
             } else {
                 log::info!(
@@ -688,6 +688,10 @@ impl Worker {
                 since_beacon = latest_beacon;
             }
         }
+
+        log::error!(
+                    "[SU] --- preparing events !!!!!"
+                );
 
         let events = Some(vec![types::Event::SyncFinish(
             first_beacon.checkpoint,
@@ -702,7 +706,7 @@ impl Worker {
         );
 
         // Clear transient created addresses
-        wallet.clear_transient_addresses();
+        wallet.clear_transient_addresses()?;
 
         Ok(())
     }

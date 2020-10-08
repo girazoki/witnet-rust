@@ -47,40 +47,67 @@ pub struct Wallet<T> {
 }
 
 impl<T> Wallet<T>
-where
-    T: Database,
+    where
+        T: Database,
 {
     /// Generate transient addresses
-    pub fn generate_transient_addresses(&self) -> Result<()> {
-        let state = self.state.write()?;
-        let internal_range = state.next_internal_index..state.next_internal_index+100;
-        let external_range = state.next_external_index..state.next_external_index+100;
-
-        for index in internal_range {
-            let account = state.account;
-            let keychain = constants::INTERNAL_KEYCHAIN;
-            let parent_key = &state.keychains[keychain as usize];
-
-            let (address, _) =
-                self._gen_address(None, parent_key, account, keychain, index, false)?;
-            state.transient_internal_addresses.insert(address.pkh, *address.clone());
-        }
+    pub fn generate_transient_addresses(&self, external_addresses: u32, internal_addresses: u32) -> Result<()> {
+        let mut state = self.state.write()?;
+        let external_range = state.next_external_index..state.next_external_index + external_addresses;
+        let internal_range = state.next_internal_index..state.next_internal_index + internal_addresses;
 
         for index in external_range {
             let account = state.account;
             let keychain = constants::EXTERNAL_KEYCHAIN;
-            let parent_key = &state.keychains[keychain as usize];
+            let parent_key = &state.keychains[keychain as usize].clone();
 
             let (address, _) =
                 self._gen_address(None, parent_key, account, keychain, index, false)?;
-            state.transient_external_addresses.insert(address.pkh, *address.clone());
+            state.transient_external_addresses.insert(address.pkh, (*address).clone());
+        }
+
+        for index in internal_range {
+            let account = state.account;
+            let keychain = constants::INTERNAL_KEYCHAIN;
+            let parent_key = &state.keychains[keychain as usize].clone();
+
+            let (address, _) =
+                self._gen_address(None, parent_key, account, keychain, index, false)?;
+            state.transient_internal_addresses.insert(address.pkh, (*address).clone());
+        }
+
+        Ok(())
+    }
+
+    pub fn _generate_transient_addresses(&self, state: &mut State, external_addresses: u32, internal_addresses: u32) -> Result<()> {
+        let external_range = state.next_external_index..state.next_external_index + external_addresses;
+        let internal_range = state.next_internal_index..state.next_internal_index + internal_addresses;
+
+        for index in external_range {
+            let account = state.account;
+            let keychain = constants::EXTERNAL_KEYCHAIN;
+            let parent_key = &state.keychains[keychain as usize].clone();
+
+            let (address, _) =
+                self._gen_address(None, parent_key, account, keychain, index, false)?;
+            state.transient_external_addresses.insert(address.pkh, (*address).clone());
+        }
+
+        for index in internal_range {
+            let account = state.account;
+            let keychain = constants::INTERNAL_KEYCHAIN;
+            let parent_key = &state.keychains[keychain as usize].clone();
+
+            let (address, _) =
+                self._gen_address(None, parent_key, account, keychain, index, false)?;
+            state.transient_internal_addresses.insert(address.pkh, (*address).clone());
         }
 
         Ok(())
     }
 
     pub fn clear_transient_addresses(&self) -> Result<()> {
-        let state = self.state.write()?;
+        let mut state = self.state.write()?;
 
         state.transient_internal_addresses.clear();
         state.transient_external_addresses.clear();
@@ -88,8 +115,14 @@ where
         Ok(())
     }
 
+    pub fn _clear_transient_addresses(&self, state: &mut State) -> Result<()> {
+        state.transient_internal_addresses.clear();
+        state.transient_external_addresses.clear();
 
-        /// Returns the bootstrap hash consensus constant
+        Ok(())
+    }
+
+    /// Returns the bootstrap hash consensus constant
     pub fn get_bootstrap_hash(&self) -> Hash {
         self.params.genesis_prev_hash
     }
@@ -215,7 +248,8 @@ where
             pending_blocks: Default::default(),
             pending_dr_movements: Default::default(),
             db_movements_to_update: Default::default(),
-            transient_addresses: Default::default(),
+            transient_external_addresses: Default::default(),
+            transient_internal_addresses: Default::default(),
         });
 
         Ok(Self {
@@ -270,7 +304,7 @@ where
             keychain,
             index,
         }
-        .to_string();
+            .to_string();
         let info = model::AddressInfo {
             db_key: keys::address_info(account, keychain, index),
             label,
@@ -487,7 +521,7 @@ where
             keychain,
             index,
         }
-        .to_string();
+            .to_string();
 
         if let Some(address) = state.pending_addresses_by_path.get(&path) {
             log::trace!("Address {} found in memory", path);
@@ -588,9 +622,9 @@ where
                     .pending_dr_movements
                     .contains_key(&tally.dr_pointer.to_string())
                     || self
-                        .db
-                        .get::<_, u32>(&keys::transactions_index(tally.dr_pointer.as_ref()))
-                        .is_ok()
+                    .db
+                    .get::<_, u32>(&keys::transactions_index(tally.dr_pointer.as_ref()))
+                    .is_ok()
                 {
                     filtered_txns.push(txn.clone());
                     continue;
@@ -600,7 +634,8 @@ where
             let check_db = |output: &types::VttOutput| {
                 self.db
                     .get::<_, model::Path>(&keys::pkh(&output.pkh))
-                    .is_ok()
+                    .is_ok() || state.transient_external_addresses.get(&output.pkh).is_some()
+                    || state.transient_internal_addresses.get(&output.pkh).is_some()
             };
             // Check if any input or output is from the wallet (input is an UTXO or output points to any wallet's pkh)
             if inputs
@@ -1095,9 +1130,40 @@ where
         let account_mutation =
             match self._get_account_mutation(&state, &txn, &block_info, confirmed)? {
                 // If UTXO set has not changed, then there is no balance movement derived from the transaction being processed
-                None => return Ok(None),
+                None => {
+                    log::error!("-------> ignoring because no balance movement");
+
+                    return Ok(None)
+                },
                 Some(account_mutation) => account_mutation,
             };
+
+        // TODO: refactor: maybe it is not the place
+        // If it is syncing... then re-generate transient addresses if needed
+        if !state.transient_internal_addresses.is_empty() && !state.transient_external_addresses.is_empty() {
+            let (new_external_index, new_internal_index) = account_mutation.utxo_inserts.iter().fold((state.next_external_index, state.next_internal_index), |mut acc, (_output, key_balance)| {
+                if let Some(address) = state.transient_internal_addresses.get(&key_balance.pkh) {
+                    if address.keychain == constants::EXTERNAL_KEYCHAIN && address.index >= state.next_external_index {
+                        acc.0 = address.index;
+                    } else if address.keychain == constants::INTERNAL_KEYCHAIN && address.index >= state.next_internal_index {
+                        acc.1 = address.index;
+                    }
+                }
+
+                acc
+            });
+
+            for _ in state.next_external_index..new_external_index + 1 {
+                self._gen_external_address(state, None)?;
+            }
+
+            for _ in state.next_internal_index..new_internal_index + 1 {
+                self._gen_internal_address(state, None)?;
+            }
+
+            self._clear_transient_addresses(state)?;
+            self._generate_transient_addresses(state, 5, 5)?;
+        }
 
         // If exists, remove transaction from local pending movements
         let txn_hash = txn.transaction.hash();
@@ -1164,7 +1230,7 @@ where
                 pkh: old_address.pkh,
             };
 
-            log::trace!(
+            log::error!(
                 "Updating address:\nOld: {:?}\nNew: {:?}",
                 old_address,
                 updated_address
@@ -1173,7 +1239,10 @@ where
             addresses.push(Arc::new(updated_address));
         }
 
-        // FIXME(#1539): if tally txn, compute update of data request balance movement
+        log::error!(
+                "Updating balance movement: {:?}",
+                account_mutation.balance_movement
+        );
 
         Ok(Some((account_mutation.balance_movement, addresses)))
     }
@@ -1187,7 +1256,7 @@ where
         let mut state = self.state.write()?;
 
         if let Some(mut account_mutation) =
-            self._get_account_mutation(&state, txn, &model::Beacon::default(), false)?
+        self._get_account_mutation(&state, txn, &model::Beacon::default(), false)?
         {
             account_mutation.balance_movement.transaction.timestamp =
                 u64::try_from(get_timestamp())
@@ -1257,7 +1326,10 @@ where
 
         let mut output_amount: u64 = 0;
         for (index, output) in outputs.iter().enumerate() {
-            if let Some(model::Path { .. }) = self.db.get_opt(&keys::pkh(&output.pkh))? {
+            if self.db.get_opt::<_, model::Path>(&keys::pkh(&output.pkh))?.is_some()
+                || state.transient_external_addresses.get(&output.pkh).is_some() || state.transient_internal_addresses.get(&output.pkh).is_some() {
+                log::error!("---> getting account mutation --- FOUND IN DB");
+
                 let out_ptr = model::OutPtr {
                     txn_hash: txn.transaction.hash().as_ref().to_vec(),
                     output_index: u32::try_from(index).unwrap(),
@@ -1282,8 +1354,6 @@ where
                     output.value
                 );
                 utxo_inserts.push((out_ptr, key_balance));
-            } else if let Some(address) = state.transient_internal_addresses.get(&output.pkh) {
-                // MARIO: Me quede aqui
             }
         }
 
@@ -1671,7 +1741,7 @@ fn build_tally_report(
                             value: types::RadonTypes::from(
                                 RadonError::try_from(types::RadError::NoReveals).unwrap(),
                             )
-                            .to_string(),
+                                .to_string(),
                             in_consensus: false,
                         },
                     );
@@ -1771,8 +1841,8 @@ fn calculate_transaction_ranges(
 
 #[cfg(test)]
 impl<T> Wallet<T>
-where
-    T: Database,
+    where
+        T: Database,
 {
     pub fn utxo_set(&self) -> Result<model::UtxoSet> {
         let state = self.state.read()?;
