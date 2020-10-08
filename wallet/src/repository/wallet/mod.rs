@@ -1169,11 +1169,12 @@ where
             let old_address = self._get_address(state, path.account, path.keychain, path.index)?;
             let old_info = &old_address.info;
 
-            // Generate new external address if received payment is payed to an unused external address
-            if old_info.received_payments.is_empty() {
+            // Generate new external address if received payment is payed to the latest unused external address
+            if old_info.received_payments.is_empty() && path.index == state.next_external_index -1 {
                 self._gen_external_address(state, None)?;
             }
 
+            log::error!("received payments {:?}", old_info.received_payments.clone());
             // Build the new address information
             let mut received_payments = old_info.received_payments.clone();
             received_payments.push(output_pointer.to_string());
