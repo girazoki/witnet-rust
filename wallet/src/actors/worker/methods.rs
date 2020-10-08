@@ -573,6 +573,9 @@ impl Worker {
         // Clear wallet pending state before sync (e.g. locked wallet)
         wallet.clear_pending_state()?;
 
+        // Generate transient addresses for sync purposes
+        wallet.generate_transient_addresses();
+
         let wallet_data = wallet.public_data()?;
 
         let first_beacon = wallet_data.last_confirmed;
@@ -697,6 +700,9 @@ impl Worker {
             wallet_id,
             latest_beacon
         );
+
+        // Clear transient created addresses
+        wallet.clear_transient_addresses();
 
         Ok(())
     }
