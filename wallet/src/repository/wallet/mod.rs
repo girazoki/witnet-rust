@@ -1142,22 +1142,25 @@ impl<T> Wallet<T>
         // If it is syncing... then re-generate transient addresses if needed
         if !state.transient_internal_addresses.is_empty() && !state.transient_external_addresses.is_empty() {
             let (new_external_index, new_internal_index) = account_mutation.utxo_inserts.iter().fold((state.next_external_index, state.next_internal_index), |mut acc, (_output, key_balance)| {
-                if let Some(address) = state.transient_internal_addresses.get(&key_balance.pkh) {
+                if let Some(address) = state.transient_external_addresses.get(&key_balance.pkh) {
                     if address.keychain == constants::EXTERNAL_KEYCHAIN && address.index >= state.next_external_index {
-                        acc.0 = address.index;
-                    } else if address.keychain == constants::INTERNAL_KEYCHAIN && address.index >= state.next_internal_index {
-                        acc.1 = address.index;
+                        acc.0 = address.index + 1;
+                    }
+                }
+                else if let Some(address) = state.transient_internal_addresses.get(&key_balance.pkh){
+                    if address.keychain == constants::INTERNAL_KEYCHAIN && address.index >= state.next_internal_index {
+                        acc.1 = address.index +1;
                     }
                 }
 
                 acc
             });
 
-            for _ in state.next_external_index..new_external_index + 1 {
+            for _ in state.next_external_index..new_external_index {
                 self._gen_external_address(state, None)?;
             }
 
-            for _ in state.next_internal_index..new_internal_index + 1 {
+            for _ in state.next_internal_index..new_internal_index {
                 self._gen_internal_address(state, None)?;
             }
 
