@@ -319,37 +319,52 @@ impl App {
         password: types::Password,
     ) -> ResponseActFuture<types::UnlockedWallet> {
         // If there is a synchronization from a previous session running, set unsyncing to false so that it can stop
-        if let Some(wallet) = self.state.get_current_wallet_session(wallet_id.clone()) {
+        /*if let Some(wallet) = self.state.get_current_wallet_session(wallet_id.clone()) {
             wallet.unset_syncing().expect("Lock error")
-        }
-        let f = self
-            .params
-            .worker
-            .send(worker::UnlockWallet(wallet_id.clone(), password))
-            .flatten()
-            .map_err(From::from)
-            .into_actor(self)
-            .and_then(move |res, slf: &mut Self, _ctx| {
-                let types::UnlockedSessionWallet {
-                    wallet,
-                    session_id,
-                    data,
-                } = res;
+        }*/
 
-                slf.state
-                    .create_session(session_id.clone(), wallet_id.clone(), wallet.clone());
 
-                // Start synchronization for this wallet
-                let sink = slf.state.get_sink(&session_id);
-                slf.params.worker.do_send(worker::SyncRequest {
-                    wallet_id,
-                    wallet,
-                    sink,
+        let wallet_id_2 = wallet_id.clone();
+
+        let f = fut::result({
+                               let res = self.state
+                                    .get_current_wallet_session(wallet_id.clone());
+                                if let Ok(wallet_session) = res{
+                                    wallet_session.unset_syncing().map_err(internal_error).map(|_| wallet_id)
+                                }
+                                else{
+                                    Ok(wallet_id)
+                                }
+            })
+            .and_then(move |wallet_id, slf: &mut Self, _ctx| {
+                slf
+                    .params
+                    .worker
+                    .send(worker::UnlockWallet(wallet_id, password))
+                    .flatten()
+                    .map_err(From::from)
+                    .into_actor(slf)
+            })
+                .and_then(move |res, slf: &mut Self, _ctx| {
+                    let types::UnlockedSessionWallet {
+                        wallet,
+                        session_id,
+                        data,
+                    } = res;
+
+                    slf.state
+                        .create_session(session_id.clone(), wallet_id_2.clone(), wallet.clone());
+
+                    // Start synchronization for this wallet
+                    let sink = slf.state.get_sink(&session_id);
+                    slf.params.worker.do_send(worker::SyncRequest {
+                        wallet_id: wallet_id_2,
+                        wallet,
+                        sink,
+                    });
+
+                    fut::ok(types::UnlockedWallet { data, session_id })
                 });
-
-                fut::ok(types::UnlockedWallet { data, session_id })
-            });
-
         Box::new(f)
     }
 

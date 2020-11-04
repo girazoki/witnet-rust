@@ -166,7 +166,10 @@ impl State {
     pub fn get_current_wallet_session(
         &mut self,
         wallet_id: String,
-    ) -> Option<&types::SessionWallet> {
-        self.wallets.get(&wallet_id)
+    ) -> Result<&types::SessionWallet> {
+        self
+            .wallets
+            .get(&wallet_id)
+            .ok_or_else(|| Error::SessionNotFound)
     }
 }
