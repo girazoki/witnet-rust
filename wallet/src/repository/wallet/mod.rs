@@ -240,6 +240,7 @@ where
             db_movements_to_update: Default::default(),
             transient_external_addresses: Default::default(),
             transient_internal_addresses: Default::default(),
+            syncing: false,
         });
 
         Ok(Self {
@@ -347,7 +348,21 @@ where
         self._gen_external_address(&mut state, label)
     }
 
-    /// Generate an address in the internal keychain (WIP-0001).
+    /// Set syncing flag to true
+    pub fn set_syncing(&self) -> Result<()> {
+        let mut state = self.state.write()?;
+
+        self._set_syncing(&mut state)
+    }
+
+    /// Set syncing flag to false
+    pub fn unset_syncing(&self) -> Result<()> {
+        let mut state = self.state.write()?;
+
+        self._unset_syncing(&mut state)
+    }
+
+    /// set syncing to true
     pub fn gen_internal_address(&self, label: Option<String>) -> Result<Arc<model::Address>> {
         let mut state = self.state.write()?;
 
@@ -1115,6 +1130,18 @@ where
         state.next_internal_index = next_index;
 
         Ok(address)
+    }
+
+    fn _set_syncing(&self, state: &mut State) -> Result<()> {
+        state.syncing = true;
+
+        Ok(())
+    }
+
+    fn _unset_syncing(&self, state: &mut State) -> Result<()> {
+        state.syncing = false;
+
+        Ok(())
     }
 
     fn _index_transaction(

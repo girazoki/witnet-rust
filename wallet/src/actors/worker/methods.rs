@@ -714,6 +714,9 @@ impl Worker {
             tip.hash_prev_block
         );
 
+        // Set syncing to true. If this becomes false, it is because either another session started or because we synchronized with this session
+        wallet.set_syncing()?;
+
         loop {
             // Ask a Witnet node for epochs and ids for all the blocks that happened AFTER the last
             // one we processed — hence `since_beacon.checkpoint + 1`
@@ -749,9 +752,14 @@ impl Worker {
             )]);
             self.notify_client(&wallet, sink.clone(), events).ok();
 
+            // If the batch size smaller than the limit, we reached the end. Set syncing to false
+            if batch_size < i128::from(limit) {
+                wallet.unset_syncing()?;
+            }
+
             // Keep asking for new batches of blocks until we get less than expected, which signals
             // that there are no more blocks to process.
-            if batch_size < i128::from(limit) {
+            if !wallet.lock_and_read_state(|state| state.syncing)? {
                 break;
             } else {
                 log::info!(

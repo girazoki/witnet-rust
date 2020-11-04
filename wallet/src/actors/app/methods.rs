@@ -314,10 +314,14 @@ impl App {
 
     /// Load a wallet's private information and keys in memory.
     pub fn unlock_wallet(
-        &self,
+        &mut self,
         wallet_id: String,
         password: types::Password,
     ) -> ResponseActFuture<types::UnlockedWallet> {
+        // If there is a synchronization from a previous session running, set unsyncing to false so that it can stop
+        if let Some(wallet) = self.state.get_current_wallet_session(wallet_id.clone()) {
+            wallet.unset_syncing().expect("Lock error")
+        }
         let f = self
             .params
             .worker

@@ -74,6 +74,8 @@ pub struct State {
     pub transient_internal_addresses: HashMap<types::PublicKeyHash, model::Address>,
     /// Transient external addresses
     pub transient_external_addresses: HashMap<types::PublicKeyHash, model::Address>,
+    /// Ongoing synchronization for a wallet session
+    pub syncing: bool,
 }
 
 impl State {
