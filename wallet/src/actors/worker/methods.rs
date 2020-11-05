@@ -5,7 +5,8 @@ use jsonrpc_core as rpc;
 use serde_json::json;
 
 use witnet_rad::script::RadonScriptExecutionSettings;
-
+use witnet_crypto::{
+    key::ExtendedSK};
 use crate::types::{ChainEntry, CheckpointBeacon, DynamicSink, GetBlockChainParams, Hashable};
 use crate::{account, constants, crypto, db::Database as _, model, params};
 
@@ -67,18 +68,48 @@ impl Worker {
         source: &types::SeedSource,
         overwrite: bool,
     ) -> Result<String> {
-        let master_key = crypto::gen_master_key(
-            self.params.seed_password.as_ref(),
-            self.params.master_key_salt.as_ref(),
-            source,
-        )?;
-        let id = crypto::gen_wallet_id(
-            &self.params.id_hash_function,
-            &master_key,
-            self.params.master_key_salt.as_ref(),
-            self.params.id_hash_iterations,
-        );
 
+        let (id, default_account) = match source {
+            types::SeedSource::XprvKeychain((internal, external)) => {
+                let (external_key, external_path) =  ExtendedSK::from_slip32(external.as_ref()).map_err(|e| Error::KeyGen(crypto::Error::Deserialization(e)))?;
+                if !external_path.is_master() {
+                    return Err(Error::KeyGen(crypto::Error::InvalidKeyPath(format!("{}", external_path))));
+                }
+                let (internal_key, internal_path) =  ExtendedSK::from_slip32(internal.as_ref()).map_err(|e| Error::KeyGen(crypto::Error::Deserialization(e)))?;
+                if !internal_path.is_master() {
+                    return Err(Error::KeyGen(crypto::Error::InvalidKeyPath(format!("{}", internal_path))));
+                }
+                let id = crypto::gen_wallet_id(
+                    &self.params.id_hash_function,
+                    &external_key,
+                    self.params.master_key_salt.as_ref(),
+                    self.params.id_hash_iterations,
+                );
+                let account = types::Account {
+                    index: 0,
+                    external: external_key,
+                    internal: internal_key,
+                };
+                (id, account)
+            },
+            _ => {
+                let master_key = crypto::gen_master_key(
+                    self.params.seed_password.as_ref(),
+                    self.params.master_key_salt.as_ref(),
+                    source,
+                )?;
+                let id = crypto::gen_wallet_id(
+                    &self.params.id_hash_function,
+                    &master_key,
+                    self.params.master_key_salt.as_ref(),
+                    self.params.id_hash_iterations,
+                );
+                let default_account_index = 0;
+                let default_account =
+                    account::gen_account(&self.engine, default_account_index, &master_key)?;
+                (id, default_account)
+            },
+        };
         // Return error if `overwrite=false` and wallet already exists
         if !overwrite
             && self
@@ -89,10 +120,6 @@ impl Worker {
         {
             return Err(Error::WalletAlreadyExists(id));
         }
-
-        let default_account_index = 0;
-        let default_account =
-            account::gen_account(&self.engine, default_account_index, &master_key)?;
 
         // This is for storage encryption
         let prefix = id.as_bytes().to_vec();
@@ -1113,5 +1140,13 @@ impl Worker {
         } else {
             Ok(false)
         }
+    }
+
+    pub fn export_private_key(
+        &self,
+        wallet: &types::Wallet,
+        password: &[u8],
+    ) -> Result<String> {
+        wallet.export_private_key(password).map_err(Error::from)
     }
 }
