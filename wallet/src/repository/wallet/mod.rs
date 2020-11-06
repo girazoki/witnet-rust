@@ -8,15 +8,17 @@ use std::{
 };
 
 use state::State;
-use witnet_crypto::hash::calculate_sha256;
+use witnet_crypto::{hash::calculate_sha256};
 use witnet_data_structures::{
     chain::{CheckpointBeacon, Environment, Epoch, EpochConstants, PublicKeyHash},
     get_environment,
 };
 use witnet_util::timestamp::get_timestamp;
+use bech32::ToBase32;
 
 use crate::{
     constants,
+    crypto,
     db::{Database, WriteBatch as _},
     model,
     params::Params,
@@ -1687,7 +1689,7 @@ where
             && state.transient_external_addresses.is_empty()))
     }
 
-    pub fn export_private_key(&self, _password: &[u8]) -> Result<String> {
+    pub fn export_private_key(&self, password: &[u8]) -> Result<String> {
         let state = self.state.read()?;
         let internal_parent_key = &state.keychains[constants::INTERNAL_KEYCHAIN as usize];
         let external_parent_key = &state.keychains[constants::EXTERNAL_KEYCHAIN as usize];
@@ -1702,8 +1704,11 @@ where
             Err(_e) => return Err(Error::TransactionBalanceOverflow),
         };
         internal_secret_key_hex.push_str(&external_secret_key_hex);
+        let encrypted_final_key = crypto::encrypt_cbc(internal_secret_key_hex.as_ref(), password).unwrap();
         //log::error!("Your secret key is {:?}", secret_key_hex.clone().into_bytes());
-        Ok(internal_secret_key_hex)
+        let final_key = bech32::encode("xprv", encrypted_final_key.to_base32())
+            .map_err(Error::Bech32)?;
+        Ok(final_key)
     }
 }
 

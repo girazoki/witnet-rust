@@ -41,6 +41,8 @@ pub enum Error {
     BlockConsolidation(String),
     #[fail(display = "hash parsing failed: {}", _0)]
     HashParseError(#[cause] types::HashParseError),
+    #[fail(display = "Bech32 serialization error: {}", _0)]
+    Bech32(#[cause] bech32::Error),
 }
 
 impl From<failure::Error> for Error {
