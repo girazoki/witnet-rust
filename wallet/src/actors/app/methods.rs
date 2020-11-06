@@ -323,48 +323,47 @@ impl App {
             wallet.unset_syncing().expect("Lock error")
         }*/
 
-
         let wallet_id_2 = wallet_id.clone();
 
         let f = fut::result({
-                               let res = self.state
-                                    .get_current_wallet_session(wallet_id.clone());
-                                if let Ok(wallet_session) = res{
-                                    wallet_session.unset_syncing().map_err(internal_error).map(|_| wallet_id)
-                                }
-                                else{
-                                    Ok(wallet_id)
-                                }
-            })
-            .and_then(move |wallet_id, slf: &mut Self, _ctx| {
-                slf
-                    .params
-                    .worker
-                    .send(worker::UnlockWallet(wallet_id, password))
-                    .flatten()
-                    .map_err(From::from)
-                    .into_actor(slf)
-            })
-                .and_then(move |res, slf: &mut Self, _ctx| {
-                    let types::UnlockedSessionWallet {
-                        wallet,
-                        session_id,
-                        data,
-                    } = res;
+            let res = self.state.get_current_wallet_session(wallet_id.clone());
+            if let Ok(wallet_session) = res {
+                wallet_session
+                    .unset_syncing()
+                    .map_err(internal_error)
+                    .map(|_| wallet_id)
+            } else {
+                Ok(wallet_id)
+            }
+        })
+        .and_then(move |wallet_id, slf: &mut Self, _ctx| {
+            slf.params
+                .worker
+                .send(worker::UnlockWallet(wallet_id, password))
+                .flatten()
+                .map_err(From::from)
+                .into_actor(slf)
+        })
+        .and_then(move |res, slf: &mut Self, _ctx| {
+            let types::UnlockedSessionWallet {
+                wallet,
+                session_id,
+                data,
+            } = res;
 
-                    slf.state
-                        .create_session(session_id.clone(), wallet_id_2.clone(), wallet.clone());
+            slf.state
+                .create_session(session_id.clone(), wallet_id_2.clone(), wallet.clone());
 
-                    // Start synchronization for this wallet
-                    let sink = slf.state.get_sink(&session_id);
-                    slf.params.worker.do_send(worker::SyncRequest {
-                        wallet_id: wallet_id_2,
-                        wallet,
-                        sink,
-                    });
+            // Start synchronization for this wallet
+            let sink = slf.state.get_sink(&session_id);
+            slf.params.worker.do_send(worker::SyncRequest {
+                wallet_id: wallet_id_2,
+                wallet,
+                sink,
+            });
 
-                    fut::ok(types::UnlockedWallet { data, session_id })
-                });
+            fut::ok(types::UnlockedWallet { data, session_id })
+        });
         Box::new(f)
     }
 
@@ -807,20 +806,20 @@ impl App {
         &mut self,
         session_id: types::SessionId,
         wallet_id: String,
-        password: types::Password) -> ResponseActFuture<String> {
+        password: types::Password,
+    ) -> ResponseActFuture<String> {
         let f = fut::result(
             self.state
                 .get_wallet_by_session_and_id(&session_id, &wallet_id),
         )
-
-            .and_then(move |wallet, slf: &mut Self, _| {
-                slf.params
-                    .worker
-                    .send(worker::ExportPrivateKey(wallet, password))
-                    .flatten()
-                    .map_err(From::from)
-                    .into_actor(slf)
-            });
+        .and_then(move |wallet, slf: &mut Self, _| {
+            slf.params
+                .worker
+                .send(worker::ExportPrivateKey(wallet, password))
+                .flatten()
+                .map_err(From::from)
+                .into_actor(slf)
+        });
 
         Box::new(f)
     }
